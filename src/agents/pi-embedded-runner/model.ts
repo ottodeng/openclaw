@@ -96,6 +96,35 @@ function resolveRuntimeHooks(params?: {
   return params?.runtimeHooks ?? DEFAULT_PROVIDER_RUNTIME_HOOKS;
 }
 
+/**
+ * When the provider is github-copilot and the model is a Claude model,
+ * default to anthropic-messages API instead of openai-responses.
+ *
+ * The Anthropic Messages API supports prompt caching on GitHub Copilot,
+ * which keeps TTFB constant (~0.7-0.9s) regardless of context size.
+ * The OpenAI chat/completions API does NOT cache Claude prompts, causing
+ * TTFB to scale linearly — at 100k+ tokens, prefill can exceed the 60s
+ * LLM idle timeout.
+ *
+ * Other model families (GPT, Gemini) already get caching via the default
+ * OpenAI API on GitHub Copilot, so no override is needed for them.
+ */
+function inferNativeApiForCopilotModel(
+  provider: string | undefined,
+  modelId: string | undefined,
+): ModelDefinitionConfig["api"] | undefined {
+  if (!provider || !modelId) return undefined;
+  const normalizedProvider = provider.toLowerCase();
+  if (normalizedProvider !== "github-copilot") return undefined;
+
+  const normalizedModel = modelId.toLowerCase();
+  if (normalizedModel.includes("claude")) {
+    return "anthropic-messages";
+  }
+  // GPT / Gemini / o-series: keep default openai-responses (already cached)
+  return undefined;
+}
+
 function normalizeResolvedTransportApi(api: unknown): ModelDefinitionConfig["api"] | undefined {
   switch (api) {
     case "anthropic-messages":
@@ -341,12 +370,14 @@ function applyConfiguredProviderOverrides(params: {
     cfg: params.cfg,
     runtimeHooks: params.runtimeHooks,
   });
+  const inferredApi =
+    resolvedTransport.api ??
+    normalizeResolvedTransportApi(discoveredModel.api) ??
+    inferNativeApiForCopilotModel(params.provider, discoveredModel.id) ??
+    "openai-responses";
   const requestConfig = resolveProviderRequestConfig({
     provider: params.provider,
-    api:
-      resolvedTransport.api ??
-      normalizeResolvedTransportApi(discoveredModel.api) ??
-      "openai-responses",
+    api: inferredApi,
     baseUrl: resolvedTransport.baseUrl ?? discoveredModel.baseUrl,
     discoveredHeaders,
     providerHeaders,
@@ -359,7 +390,7 @@ function applyConfiguredProviderOverrides(params: {
   return attachModelProviderRequestTransport(
     {
       ...discoveredModel,
-      api: requestConfig.api ?? "openai-responses",
+      api: requestConfig.api ?? inferredApi,
       baseUrl: requestConfig.baseUrl ?? discoveredModel.baseUrl,
       reasoning: configuredModel?.reasoning ?? discoveredModel.reasoning,
       input: normalizedInput,
