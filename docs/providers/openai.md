@@ -472,8 +472,8 @@ Azure may reject options that public OpenAI allows (for example certain
 `background` values on `gpt-image-2`) or expose them only on specific model
 versions. These differences come from Azure and the underlying model, not
 OpenClaw. If an Azure request fails with a validation error, check the
-[Azure OpenAI image generation docs](https://learn.microsoft.com/azure/ai-foundry/openai/how-to/dall-e)
-for the parameter set supported by your deployment.
+parameter set supported by your specific deployment and API version in the
+Azure portal.
 
 <Note>
 Azure OpenAI uses native transport and compat behavior but does not receive
