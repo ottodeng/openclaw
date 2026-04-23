@@ -7,6 +7,7 @@ import {
   postJsonRequest,
   resolveProviderHttpRequestConfig,
 } from "openclaw/plugin-sdk/provider-http";
+import { buildAzureOpenAIImageRoute, isAzureOpenAIBaseUrl } from "./azure.js";
 import { OPENAI_DEFAULT_IMAGE_MODEL as DEFAULT_OPENAI_IMAGE_MODEL } from "./default-models.js";
 import { resolveConfiguredOpenAIBaseUrl, toOpenAIDataUrl } from "./shared.js";
 
@@ -88,14 +89,17 @@ export function buildOpenAIImageGenerationProvider(): ImageGenerationProvider {
       if (!auth.apiKey) {
         throw new Error("OpenAI API key missing");
       }
+      const configuredBaseUrl = resolveConfiguredOpenAIBaseUrl(req.cfg);
+      const isAzure = isAzureOpenAIBaseUrl(configuredBaseUrl);
+      const defaultHeaders: Record<string, string> = isAzure
+        ? { "api-key": auth.apiKey }
+        : { Authorization: `Bearer ${auth.apiKey}` };
       const { baseUrl, allowPrivateNetwork, headers, dispatcherPolicy } =
         resolveProviderHttpRequestConfig({
-          baseUrl: resolveConfiguredOpenAIBaseUrl(req.cfg),
+          baseUrl: configuredBaseUrl,
           defaultBaseUrl: DEFAULT_OPENAI_IMAGE_BASE_URL,
           allowPrivateNetwork: shouldAllowPrivateImageEndpoint(req),
-          defaultHeaders: {
-            Authorization: `Bearer ${auth.apiKey}`,
-          },
+          defaultHeaders,
           provider: "openai",
           capability: "image",
           transport: "http",
@@ -104,49 +108,51 @@ export function buildOpenAIImageGenerationProvider(): ImageGenerationProvider {
       const model = req.model || DEFAULT_OPENAI_IMAGE_MODEL;
       const count = req.count ?? 1;
       const size = req.size ?? DEFAULT_SIZE;
-      const requestResult = isEdit
-        ? await (() => {
-            const jsonHeaders = new Headers(headers);
-            jsonHeaders.set("Content-Type", "application/json");
-            return postJsonRequest({
-              url: `${baseUrl}/images/edits`,
-              headers: jsonHeaders,
-              body: {
-                model,
-                prompt: req.prompt,
-                n: count,
-                size,
-                images: inputImages.map((image) => ({
-                  image_url: toOpenAIDataUrl(
-                    image.buffer,
-                    image.mimeType?.trim() || DEFAULT_OUTPUT_MIME,
-                  ),
-                })),
-              },
-              timeoutMs: req.timeoutMs,
-              fetchFn: fetch,
-              allowPrivateNetwork,
-              dispatcherPolicy,
-            });
-          })()
-        : await (() => {
-            const jsonHeaders = new Headers(headers);
-            jsonHeaders.set("Content-Type", "application/json");
-            return postJsonRequest({
-              url: `${baseUrl}/images/generations`,
-              headers: jsonHeaders,
-              body: {
-                model,
-                prompt: req.prompt,
-                n: count,
-                size,
-              },
-              timeoutMs: req.timeoutMs,
-              fetchFn: fetch,
-              allowPrivateNetwork,
-              dispatcherPolicy,
-            });
-          })();
+      const operation: "generations" | "edits" = isEdit ? "edits" : "generations";
+      const azureRoute = isAzure
+        ? buildAzureOpenAIImageRoute({
+            baseUrl,
+            deployment: model,
+            apiKey: auth.apiKey,
+            operation,
+          })
+        : undefined;
+      const jsonHeaders = new Headers(headers);
+      jsonHeaders.set("Content-Type", "application/json");
+      if (azureRoute) {
+        for (const [headerKey, headerValue] of Object.entries(azureRoute.headers)) {
+          jsonHeaders.set(headerKey, headerValue);
+        }
+      }
+      const requestUrl = azureRoute ? azureRoute.url : `${baseUrl}/images/${operation}`;
+      const requestBody = isEdit
+        ? {
+            model,
+            prompt: req.prompt,
+            n: count,
+            size,
+            images: inputImages.map((image) => ({
+              image_url: toOpenAIDataUrl(
+                image.buffer,
+                image.mimeType?.trim() || DEFAULT_OUTPUT_MIME,
+              ),
+            })),
+          }
+        : {
+            model,
+            prompt: req.prompt,
+            n: count,
+            size,
+          };
+      const requestResult = await postJsonRequest({
+        url: requestUrl,
+        headers: jsonHeaders,
+        body: requestBody,
+        timeoutMs: req.timeoutMs,
+        fetchFn: fetch,
+        allowPrivateNetwork,
+        dispatcherPolicy,
+      });
       const { response, release } = requestResult;
       try {
         await assertOkOrThrowHttpError(

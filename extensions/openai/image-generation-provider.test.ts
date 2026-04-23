@@ -187,6 +187,148 @@ describe("openai image generation provider", () => {
     expect(result.images).toHaveLength(1);
   });
 
+  it("routes requests for Azure OpenAI base URLs through the deployment-scoped path with api-key header", async () => {
+    mockGeneratedPngResponse();
+
+    const provider = buildOpenAIImageGenerationProvider();
+    await provider.generateImage({
+      provider: "openai",
+      model: "gpt-image-2-deployment",
+      prompt: "Azure generate test",
+      cfg: {
+        models: {
+          providers: {
+            openai: {
+              baseUrl: "https://my-resource.openai.azure.com",
+              models: [],
+            },
+          },
+        },
+      },
+    });
+
+    expect(resolveProviderHttpRequestConfigMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: "https://my-resource.openai.azure.com",
+        defaultHeaders: { "api-key": "openai-key" },
+      }),
+    );
+    const call = postJsonRequestMock.mock.calls[0]?.[0];
+    expect(call).toBeDefined();
+    expect(call.url).toBe(
+      "https://my-resource.openai.azure.com/openai/deployments/gpt-image-2-deployment/images/generations?api-version=2024-12-01-preview",
+    );
+    const headers = call.headers as Headers;
+    expect(headers.get("api-key")).toBe("openai-key");
+    expect(headers.get("Authorization")).toBeNull();
+    expect(headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("honors AZURE_OPENAI_API_VERSION when routing Azure image requests", async () => {
+    mockGeneratedPngResponse();
+    vi.stubEnv("AZURE_OPENAI_API_VERSION", "2024-10-21");
+
+    const provider = buildOpenAIImageGenerationProvider();
+    await provider.generateImage({
+      provider: "openai",
+      model: "gpt-image-2-deployment",
+      prompt: "Azure generate with pinned api-version",
+      cfg: {
+        models: {
+          providers: {
+            openai: {
+              baseUrl: "https://my-resource.openai.azure.com/",
+              models: [],
+            },
+          },
+        },
+      },
+    });
+
+    const call = postJsonRequestMock.mock.calls[0]?.[0];
+    expect(call.url).toBe(
+      "https://my-resource.openai.azure.com/openai/deployments/gpt-image-2-deployment/images/generations?api-version=2024-10-21",
+    );
+  });
+
+  it("detects alternative Azure host suffixes (services.ai.azure.com / cognitiveservices.azure.com)", async () => {
+    const provider = buildOpenAIImageGenerationProvider();
+
+    for (const host of [
+      "https://foo.services.ai.azure.com",
+      "https://foo.cognitiveservices.azure.com",
+    ]) {
+      mockGeneratedPngResponse();
+      await provider.generateImage({
+        provider: "openai",
+        model: "dep",
+        prompt: "p",
+        cfg: {
+          models: {
+            providers: {
+              openai: { baseUrl: host, models: [] },
+            },
+          },
+        },
+      });
+      const call = postJsonRequestMock.mock.calls.at(-1)?.[0];
+      expect(call.url).toBe(
+        `${host}/openai/deployments/dep/images/generations?api-version=2024-12-01-preview`,
+      );
+      expect((call.headers as Headers).get("api-key")).toBe("openai-key");
+    }
+  });
+
+  it("routes Azure image edits through the deployment-scoped edits path with api-key header", async () => {
+    mockGeneratedPngResponse();
+
+    const provider = buildOpenAIImageGenerationProvider();
+    await provider.generateImage({
+      provider: "openai",
+      model: "gpt-image-2-deployment",
+      prompt: "Tweak the background",
+      cfg: {
+        models: {
+          providers: {
+            openai: {
+              baseUrl: "https://my-resource.openai.azure.com",
+              models: [],
+            },
+          },
+        },
+      },
+      inputImages: [{ buffer: Buffer.from("png-bytes"), mimeType: "image/png", fileName: "r.png" }],
+    });
+
+    const call = postJsonRequestMock.mock.calls[0]?.[0];
+    expect(call.url).toBe(
+      "https://my-resource.openai.azure.com/openai/deployments/gpt-image-2-deployment/images/edits?api-version=2024-12-01-preview",
+    );
+    expect((call.headers as Headers).get("api-key")).toBe("openai-key");
+  });
+
+  it("keeps the public OpenAI path (Bearer auth, /images/generations) for non-Azure base URLs", async () => {
+    mockGeneratedPngResponse();
+
+    const provider = buildOpenAIImageGenerationProvider();
+    await provider.generateImage({
+      provider: "openai",
+      model: "gpt-image-2",
+      prompt: "Public OpenAI path",
+      cfg: {},
+    });
+
+    expect(resolveProviderHttpRequestConfigMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultHeaders: { Authorization: "Bearer openai-key" },
+      }),
+    );
+    const call = postJsonRequestMock.mock.calls[0]?.[0];
+    expect(call.url).toBe("https://api.openai.com/v1/images/generations");
+    expect((call.headers as Headers).get("Authorization")).toBe("Bearer openai-key");
+    expect((call.headers as Headers).get("api-key")).toBeNull();
+  });
+
   it("forwards edit count, custom size, and multiple input images", async () => {
     mockGeneratedPngResponse();
 
