@@ -39,7 +39,12 @@ function parseOpenAIReasoningSignature(value: unknown): OpenAIReasoningSignature
   }
   const id = typeof candidate.id === "string" ? candidate.id : "";
   const type = typeof candidate.type === "string" ? candidate.type : "";
-  if (!id.startsWith("rs_")) {
+  // Accept any non-empty id. OpenAI direct emits "rs_..." prefixes, but
+  // Copilot-hosted Responses (e.g. gpt-5.x) returns opaque encrypted ids that
+  // must still be threaded back as-is on subsequent turns; otherwise the
+  // upstream rejects continuation with HTTP 400 "Encrypted content item_id
+  // did not match the target item id".
+  if (!id) {
     return null;
   }
   if (type === "reasoning" || type.startsWith("reasoning.")) {

@@ -166,7 +166,9 @@ function extractReasoningText(item: { summary?: unknown; content?: unknown }): s
 function toExpectedReasoningSignature(item: { id?: string; type: string }) {
   return {
     type: item.type,
-    ...(typeof item.id === "string" && item.id.startsWith("rs_") ? { id: item.id } : {}),
+    // Accept any non-empty id, not just "rs_*". Copilot-hosted Responses
+    // returns opaque encrypted ids that must be threaded back as-is.
+    ...(typeof item.id === "string" && item.id.length > 0 ? { id: item.id } : {}),
   };
 }
 

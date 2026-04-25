@@ -619,7 +619,13 @@ describe("convertMessagesToInputItems", () => {
     expect(items[0]).toMatchObject({ type: "reasoning", id: "rs_summary" });
   });
 
-  it("drops reasoning replay ids that do not match OpenAI reasoning ids", () => {
+  it("preserves arbitrary reasoning ids (Copilot returns opaque non-rs_ ids)", () => {
+    // Regression: previously we dropped any reasoning id that did not start
+    // with "rs_". GitHub Copilot's hosted Responses proxy returns opaque,
+    // base64-shaped ids that must be re-sent verbatim on the next turn,
+    // otherwise the upstream rejects continuation with HTTP 400 "Encrypted
+    // content item_id did not match the target item id".
+    const opaqueId = "cAkF5s7bPI/vmV4ynEfGnazJ076eYI+abcdef=="; // Copilot-style opaque id
     const msg = {
       role: "assistant" as const,
       content: [
@@ -628,7 +634,44 @@ describe("convertMessagesToInputItems", () => {
           thinking: "internal reasoning...",
           thinkingSignature: JSON.stringify({
             type: "reasoning",
-            id: "  bad-id  ",
+            id: opaqueId,
+          }),
+        },
+        { type: "text" as const, text: "Here is my answer." },
+      ],
+      stopReason: "stop",
+      api: "openai-responses",
+      provider: "github-copilot",
+      model: "gpt-5.5",
+      usage: {},
+      timestamp: 0,
+    };
+    const items = convertMessagesToInputItems([msg] as Parameters<
+      typeof convertMessagesToInputItems
+    >[0]);
+    expect(items).toEqual([
+      {
+        type: "reasoning",
+        id: opaqueId,
+      },
+      {
+        type: "message",
+        role: "assistant",
+        content: "Here is my answer.",
+      },
+    ]);
+  });
+
+  it("drops reasoning replay ids that are empty after trimming", () => {
+    const msg = {
+      role: "assistant" as const,
+      content: [
+        {
+          type: "thinking" as const,
+          thinking: "internal reasoning...",
+          thinkingSignature: JSON.stringify({
+            type: "reasoning",
+            id: "   ", // whitespace-only -> dropped
           }),
         },
         { type: "text" as const, text: "Here is my answer." },

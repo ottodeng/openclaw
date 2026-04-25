@@ -160,8 +160,13 @@ function isReplayableReasoningType(value: unknown): value is "reasoning" | `reas
 }
 
 function toReplayableReasoningId(value: unknown): string | null {
-  const id = toNonEmptyString(value);
-  return id && id.startsWith("rs_") ? id : null;
+  // Accept any non-empty id. OpenAI direct returns ids like "rs_...", but
+  // GitHub Copilot's Responses proxy returns opaque encrypted/base64 ids that
+  // do not share that prefix. Dropping non-"rs_" ids caused the server-side
+  // continuation check to fail with HTTP 400 "Encrypted content item_id did
+  // not match the target item id" when re-sending reasoning items in a
+  // multi-turn conversation against Copilot-hosted gpt-5.x models.
+  return toNonEmptyString(value);
 }
 
 function toReasoningSignature(value: unknown): ReplayableReasoningSignature | null {
