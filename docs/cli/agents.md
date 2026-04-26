@@ -202,6 +202,8 @@ Override fields explicitly:
 openclaw agents set-identity --agent main --name "OpenClaw" --emoji "🦞" --avatar avatars/openclaw.png
 ```
 
+> **Note:** Avatar image files must be under 2 MB. Larger files are silently ignored.
+
 Config sample:
 
 ```json5
