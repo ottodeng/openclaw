@@ -241,7 +241,7 @@ export class TokenManager {
     }
 
     if (!data.access_token) {
-      throw new Error(`Failed to get access_token: ${JSON.stringify(data)}`);
+      throw new Error(`Failed to get access_token (check QQBOT_APP_ID and QQBOT_CLIENT_SECRET). API response: ${JSON.stringify(data)}. See: https://docs.openclaw.ai/channels/qqbot`);
     }
 
     const expiresAt = Date.now() + (data.expires_in ?? 7200) * 1000;
