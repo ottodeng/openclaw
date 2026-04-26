@@ -1298,11 +1298,11 @@
                 "group": "Providers",
                 "pages": [
                   "providers/alibaba",
-                  "providers/bedrock",
-                  "providers/bedrock-mantle",
                   "providers/anthropic",
                   "providers/arcee",
                   "providers/azure-speech",
+                  "providers/bedrock",
+                  "providers/bedrock-mantle",
                   "providers/chutes",
                   "providers/claude-max-api-proxy",
                   "providers/cloudflare-ai-gateway",
