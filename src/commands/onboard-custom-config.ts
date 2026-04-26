@@ -487,6 +487,8 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
   const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
   const hasModel = existingModels.some((model) => model.id === modelId);
   const isLikelyReasoningModel = isAzure && /\b(o[134]|gpt-([5-9]|\d{2,}))\b/i.test(modelId);
+  const isLikelyVisionModel =
+    /\b(claude|gpt-4o|gpt-4\.1|gpt-5|gemini|qwen-vl|qwen2-vl|glm-4v|pixtral)\b/i.test(modelId);
   const nextModel = isAzure
     ? {
         id: modelId,
@@ -505,7 +507,9 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
         name: `${modelId} (Custom Provider)`,
         contextWindow: DEFAULT_CONTEXT_WINDOW,
         maxTokens: DEFAULT_MAX_TOKENS,
-        input: ["text"] as ["text"],
+        input: isLikelyVisionModel
+          ? (["text", "image"] as Array<"text" | "image">)
+          : (["text"] as ["text"]),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         reasoning: false,
       };
@@ -517,6 +521,8 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
               ...(isAzure ? nextModel : {}),
               name: model.name ?? nextModel.name,
               cost: model.cost ?? nextModel.cost,
+              input:
+                nextModel.input.length > (model.input?.length ?? 0) ? nextModel.input : model.input,
               contextWindow: normalizeContextWindowForCustomModel(model.contextWindow),
               maxTokens: model.maxTokens ?? nextModel.maxTokens,
             }

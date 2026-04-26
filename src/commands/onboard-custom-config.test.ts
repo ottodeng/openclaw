@@ -311,6 +311,69 @@ describe("applyCustomApiConfig", () => {
     ).toBeUndefined();
   });
 
+  it("detects vision-capable models for non-azure custom providers", () => {
+    for (const modelId of ["claude-sonnet-4-6", "gpt-4o-mini", "gemini-2.5-pro", "qwen-vl-max"]) {
+      const result = applyCustomApiConfig({
+        config: {},
+        baseUrl: "https://llm.example.com/v1",
+        modelId,
+        compatibility: "openai",
+        apiKey: "key123",
+        providerId: "custom",
+      });
+      const provider = result.config.models?.providers?.custom;
+      expect(provider?.models?.[0]?.input).toEqual(["text", "image"]);
+    }
+  });
+
+  it("does not add image input for non-vision non-azure models", () => {
+    const result = applyCustomApiConfig({
+      config: {},
+      baseUrl: "https://llm.example.com/v1",
+      modelId: "llama-3.1-70b",
+      compatibility: "openai",
+      apiKey: "key123",
+      providerId: "custom",
+    });
+    const provider = result.config.models?.providers?.custom;
+    expect(provider?.models?.[0]?.input).toEqual(["text"]);
+  });
+
+  it("re-onboard updates input for existing non-azure vision models", () => {
+    const result = applyCustomApiConfig({
+      config: {
+        models: {
+          providers: {
+            custom: {
+              baseUrl: "https://llm.example.com/v1",
+              api: "openai-completions",
+              models: [
+                {
+                  id: "claude-sonnet-4-6",
+                  name: "My Claude",
+                  contextWindow: 200000,
+                  maxTokens: 8192,
+                  input: ["text"],
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                  reasoning: false,
+                },
+              ],
+            },
+          },
+        },
+      },
+      baseUrl: "https://llm.example.com/v1",
+      modelId: "claude-sonnet-4-6",
+      compatibility: "openai",
+      apiKey: "key123",
+      providerId: "custom",
+    });
+    const provider = result.config.models?.providers?.custom;
+    const model = provider?.models?.find((m) => m.id === "claude-sonnet-4-6");
+    expect(model?.input).toEqual(["text", "image"]);
+    expect(model?.name).toBe("My Claude");
+  });
+
   it("re-onboard preserves user-customized fields for non-azure models", () => {
     const result = applyCustomApiConfig({
       config: {
