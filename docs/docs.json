@@ -1323,6 +1323,7 @@
                   "providers/kilocode",
                   "providers/litellm",
                   "providers/lmstudio",
+                  "providers/microsoft-foundry",
                   "providers/minimax",
                   "providers/mistral",
                   "providers/moonshot",
