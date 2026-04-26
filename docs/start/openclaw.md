@@ -121,7 +121,7 @@ Example:
 {
   logging: { level: "info" },
   agent: {
-    model: "anthropic/claude-opus-4-6",
+    model: "<provider>/<model-id>", // e.g. openai/gpt-4.1, anthropic/claude-sonnet-4-6
     workspace: "~/.openclaw/workspace",
     thinkingDefault: "high",
     timeoutSeconds: 1800,
