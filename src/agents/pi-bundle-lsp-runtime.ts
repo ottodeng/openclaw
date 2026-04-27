@@ -384,7 +384,9 @@ export async function createBundleLspToolRuntime(params: {
         // detached children (typescript-language-server -> tsserver) do not
         // outlive us.
         const exitCleanup = () => {
-          if (session.disposed) return;
+          if (session.disposed) {
+            return;
+          }
           session.disposed = true;
           killSessionProcessTree(session);
         };
