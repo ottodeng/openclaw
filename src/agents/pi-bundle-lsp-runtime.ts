@@ -199,6 +199,10 @@ function killSessionProcessTree(session: LspSession): void {
   if (pid != null && process.platform !== "win32") {
     try {
       process.kill(-pid, "SIGTERM");
+      // Process-group SIGTERM was delivered; the child (and its descendants)
+      // will receive it. Avoid sending an extra direct SIGTERM to the leader,
+      // which would just be redundant and may race the exit handler.
+      return;
     } catch {
       // Process group may already be gone — fall through to direct kill.
     }
@@ -383,6 +387,14 @@ export async function createBundleLspToolRuntime(params: {
         // (e.g. unhandled exception), still kill the LSP process group so
         // detached children (typescript-language-server -> tsserver) do not
         // outlive us.
+        //
+        // Trade-off: process.once("exit") only fires for graceful Node exits.
+        // Hard crashes (SIGKILL on the parent, OOM, segfault) skip it, so a
+        // detached LSP server can be orphaned in those rare cases. We accept
+        // this because there is no cross-platform way to be notified of an
+        // ungraceful parent death from inside the parent itself; users on
+        // POSIX who need stricter guarantees can run OpenClaw under a process
+        // supervisor that reaps orphaned children.
         const exitCleanup = () => {
           if (session.disposed) {
             return;

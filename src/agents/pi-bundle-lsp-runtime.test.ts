@@ -8,7 +8,7 @@ afterEach(() => {
 
 describe("pi-bundle-lsp-runtime: process group cleanup", () => {
   it.runIf(process.platform !== "win32")(
-    "sends SIGTERM to the process group before falling back to direct kill",
+    "sends SIGTERM to the process group and skips the direct kill on success",
     () => {
       // Spawn a real, harmless child in its own process group so we can verify
       // the negative-PID signaling path actually targets the group.
@@ -35,9 +35,11 @@ describe("pi-bundle-lsp-runtime: process group cleanup", () => {
 
         __killSessionProcessTreeForTest(session as never);
 
-        // Group SIGTERM to -pid must come first, then direct kill().
+        // Group SIGTERM to -pid is the only kill we expect when it succeeds:
+        // the leader is part of the group, so a direct kill would be a
+        // redundant duplicate signal.
         expect(killSpy).toHaveBeenCalledWith(-pid!, "SIGTERM");
-        expect(directKillSpy).toHaveBeenCalledTimes(1);
+        expect(directKillSpy).not.toHaveBeenCalled();
       } finally {
         try {
           child.kill("SIGKILL");
@@ -71,29 +73,26 @@ describe("pi-bundle-lsp-runtime: process group cleanup", () => {
     },
   );
 
-  it.runIf(process.platform !== "win32")(
-    "does not call process.kill when pid is null",
-    () => {
-      const fakeChild = {
-        pid: undefined,
-        kill: vi.fn().mockReturnValue(true),
-      };
-      const killSpy = vi.spyOn(process, "kill");
-      const session = {
-        serverName: "test",
-        process: fakeChild,
-        requestId: 0,
-        pendingRequests: new Map(),
-        buffer: "",
-        initialized: false,
-        capabilities: {},
-      };
+  it.runIf(process.platform !== "win32")("does not call process.kill when pid is null", () => {
+    const fakeChild = {
+      pid: undefined,
+      kill: vi.fn().mockReturnValue(true),
+    };
+    const killSpy = vi.spyOn(process, "kill");
+    const session = {
+      serverName: "test",
+      process: fakeChild,
+      requestId: 0,
+      pendingRequests: new Map(),
+      buffer: "",
+      initialized: false,
+      capabilities: {},
+    };
 
-      __killSessionProcessTreeForTest(session as never);
+    __killSessionProcessTreeForTest(session as never);
 
-      // Only direct kill, no negative-pid call.
-      expect(killSpy).not.toHaveBeenCalled();
-      expect(fakeChild.kill).toHaveBeenCalledTimes(1);
-    },
-  );
+    // Only direct kill, no negative-pid call.
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(fakeChild.kill).toHaveBeenCalledTimes(1);
+  });
 });
