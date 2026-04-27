@@ -21,6 +21,8 @@ type LspSession = {
   buffer: string;
   initialized: boolean;
   capabilities: LspServerCapabilities;
+  disposed?: boolean;
+  exitCleanup?: () => void;
 };
 
 type LspServerCapabilities = {
@@ -43,6 +45,11 @@ type LspPositionParams = {
   line: number;
   character: number;
 };
+
+// Test-only export: kill an already-launched session's process tree.
+// Used by unit tests to verify the SIGTERM-to-process-group path without
+// requiring a real LSP server.
+export const __killSessionProcessTreeForTest = killSessionProcessTree;
 
 function encodeLspMessage(body: unknown): string {
   const json = JSON.stringify(body);
@@ -158,6 +165,14 @@ async function initializeSession(session: LspSession): Promise<LspServerCapabili
 }
 
 async function disposeSession(session: LspSession) {
+  if (session.disposed) {
+    return;
+  }
+  session.disposed = true;
+  if (session.exitCleanup) {
+    process.removeListener("exit", session.exitCleanup);
+    session.exitCleanup = undefined;
+  }
   if (session.initialized) {
     try {
       await sendRequest(session, "shutdown").catch(() => {});
@@ -173,17 +188,26 @@ async function disposeSession(session: LspSession) {
     pending.reject(new Error("LSP session disposed"));
   }
   session.pendingRequests.clear();
-  // Kill the entire process group to clean up nested child processes (e.g. tsserver)
-  // spawned by the LSP server. On Windows, process.kill() already terminates the
-  // process tree, so we only use negative PID (process group) on Unix.
-  if (session.process.pid != null && process.platform !== "win32") {
+  killSessionProcessTree(session);
+}
+
+// Kill the entire process group to clean up nested child processes (e.g.
+// tsserver) spawned by the LSP server. On Windows, ChildProcess.kill()
+// terminates the process tree, so negative-PID signaling is a no-op there.
+function killSessionProcessTree(session: LspSession): void {
+  const pid = session.process.pid;
+  if (pid != null && process.platform !== "win32") {
     try {
-      process.kill(-session.process.pid, "SIGTERM");
+      process.kill(-pid, "SIGTERM");
     } catch {
       // Process group may already be gone — fall through to direct kill.
     }
   }
-  session.process.kill();
+  try {
+    session.process.kill();
+  } catch {
+    // Process may already have exited.
+  }
 }
 
 function createLspPositionTool(params: {
@@ -354,6 +378,23 @@ export async function createBundleLspToolRuntime(params: {
           initialized: false,
           capabilities: {},
         };
+
+        // Best-effort: if the host process exits before disposeSession runs
+        // (e.g. unhandled exception), still kill the LSP process group so
+        // detached children (typescript-language-server -> tsserver) do not
+        // outlive us.
+        const exitCleanup = () => {
+          if (session.disposed) return;
+          session.disposed = true;
+          killSessionProcessTree(session);
+        };
+        session.exitCleanup = exitCleanup;
+        process.once("exit", exitCleanup);
+        // If the child exits on its own, drop the listener so we don’t
+        // accumulate one per session forever.
+        child.once("exit", () => {
+          process.removeListener("exit", exitCleanup);
+        });
 
         child.stdout?.setEncoding("utf-8");
         child.stdout?.on("data", (chunk: string) => handleIncomingData(session, chunk));
