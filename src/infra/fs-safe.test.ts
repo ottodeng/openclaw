@@ -8,6 +8,7 @@ import {
 } from "../test-utils/symlink-rebind-race.js";
 import { createTrackedTempDirs } from "../test-utils/tracked-temp-dirs.js";
 import * as pinnedPathHelperModule from "./fs-pinned-path-helper.js";
+import * as pinnedWriteHelperModule from "./fs-pinned-write-helper.js";
 import {
   __setFsSafeTestHooksForTest,
   appendFileWithinRoot,
@@ -753,4 +754,74 @@ describe("tilde expansion in file tools", () => {
       code: expect.stringMatching(/outside-workspace|not-found|invalid-path/),
     });
   });
+
+  describe.runIf(process.platform !== "win32")(
+    "normalizePinnedWriteError python3-missing surface",
+    () => {
+      function makeMissingPythonSpawnError(): NodeJS.ErrnoException {
+        const err = new Error(
+          "spawn python3 ENOENT",
+        ) as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        err.syscall = "spawn python3";
+        (err as NodeJS.ErrnoException & { path?: string }).path = "python3";
+        return err;
+      }
+
+      it("surfaces a clear python3-missing message instead of the generic one", async () => {
+        vi.spyOn(pinnedWriteHelperModule, "runPinnedWriteHelper").mockRejectedValue(
+          makeMissingPythonSpawnError(),
+        );
+
+        const root = await tempDirs.make("openclaw-fs-safe-root-");
+        await expect(
+          writeFileWithinRoot({
+            rootDir: root,
+            relativePath: "out.txt",
+            data: "hi",
+          }),
+        ).rejects.toMatchObject({
+          code: "invalid-path",
+          message: expect.stringMatching(/python3 is not installed/i),
+        });
+      });
+
+      it("detects python3-missing through a wrapped cause chain", async () => {
+        const inner = makeMissingPythonSpawnError();
+        const outer = new Error("helper failed", { cause: inner });
+        vi.spyOn(pinnedWriteHelperModule, "runPinnedWriteHelper").mockRejectedValue(outer);
+
+        const root = await tempDirs.make("openclaw-fs-safe-root-");
+        await expect(
+          writeFileWithinRoot({
+            rootDir: root,
+            relativePath: "out.txt",
+            data: "hi",
+          }),
+        ).rejects.toMatchObject({
+          code: "invalid-path",
+          message: expect.stringMatching(/python3 is not installed/i),
+        });
+      });
+
+      it("does NOT misclassify unrelated ENOENT errors as python3-missing", async () => {
+        const err = new Error("ENOENT: no such file or directory") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        // No syscall=spawn, no python in message/path.
+        vi.spyOn(pinnedWriteHelperModule, "runPinnedWriteHelper").mockRejectedValue(err);
+
+        const root = await tempDirs.make("openclaw-fs-safe-root-");
+        await expect(
+          writeFileWithinRoot({
+            rootDir: root,
+            relativePath: "out.txt",
+            data: "hi",
+          }),
+        ).rejects.toMatchObject({
+          code: "invalid-path",
+          message: expect.not.stringMatching(/python3 is not installed/i),
+        });
+      });
+    },
+  );
 });

@@ -987,25 +987,43 @@ function normalizePinnedWriteError(error: unknown): Error {
     return error;
   }
   // Surface a clear message when the pinned-write helper fails because
-  // python3 is not installed (common in slim Docker images).
-  if (error instanceof Error) {
-    const cause = (error as NodeJS.ErrnoException).code === "ENOENT"
-      ? error
-      : error.cause instanceof Error && (error.cause as NodeJS.ErrnoException).code === "ENOENT"
-        ? error.cause
-        : undefined;
-    if (cause && /python/i.test(cause.message)) {
-      return new SafeOpenError(
-        "invalid-path",
-        "pinned write failed: python3 is not installed. " +
-          "Install python3 (e.g. `apt-get install python3`) or use a base image that includes it.",
-        { cause: error },
-      );
-    }
+  // python3 is not installed (common in slim Docker images). We walk the
+  // cause chain (depth-bounded) and look for a spawn-style ENOENT pointing
+  // at a python interpreter.
+  if (isMissingPythonSpawnError(error)) {
+    return new SafeOpenError(
+      "invalid-path",
+      "pinned write failed: python3 is not installed. " +
+        "Install python3 (e.g. `apt-get install python3`) or use a base image that includes it.",
+      { cause: error instanceof Error ? error : undefined },
+    );
   }
   return new SafeOpenError("invalid-path", "path is not a regular file under root", {
     cause: error instanceof Error ? error : undefined,
   });
+}
+
+function isMissingPythonSpawnError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let i = 0; i < 4 && current instanceof Error; i++) {
+    const errno = current as NodeJS.ErrnoException;
+    if (errno.code === "ENOENT") {
+      // Strongest signal: spawn() emits an Errno error with syscall like
+      // "spawn python3" and path === "python3" / "/usr/bin/python3".
+      const syscall = typeof errno.syscall === "string" ? errno.syscall : "";
+      const errPath = typeof errno.path === "string" ? errno.path : "";
+      if (syscall.startsWith("spawn") && /python/i.test(`${syscall} ${errPath}`)) {
+        return true;
+      }
+      // Fallback: error message mentions python (covers wrapped errors
+      // whose original syscall metadata was lost).
+      if (/python/i.test(current.message)) {
+        return true;
+      }
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 function normalizePinnedPathError(error: unknown): Error {
