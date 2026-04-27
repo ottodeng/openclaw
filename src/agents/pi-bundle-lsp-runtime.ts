@@ -173,6 +173,16 @@ async function disposeSession(session: LspSession) {
     pending.reject(new Error("LSP session disposed"));
   }
   session.pendingRequests.clear();
+  // Kill the entire process group to clean up nested child processes (e.g. tsserver)
+  // spawned by the LSP server. On Windows, process.kill() already terminates the
+  // process tree, so we only use negative PID (process group) on Unix.
+  if (session.process.pid != null && process.platform !== "win32") {
+    try {
+      process.kill(-session.process.pid, "SIGTERM");
+    } catch {
+      // Process group may already be gone — fall through to direct kill.
+    }
+  }
   session.process.kill();
 }
 
@@ -327,10 +337,12 @@ export async function createBundleLspToolRuntime(params: {
       const launchConfig = launch.config;
 
       try {
+        const isWindows = process.platform === "win32";
         const child = spawn(launchConfig.command, launchConfig.args ?? [], {
           stdio: ["pipe", "pipe", "pipe"],
           env: { ...process.env, ...launchConfig.env },
           cwd: launchConfig.cwd,
+          detached: !isWindows,
         });
 
         const session: LspSession = {
