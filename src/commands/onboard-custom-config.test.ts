@@ -195,7 +195,9 @@ describe("applyCustomApiConfig", () => {
 
     const model = provider?.models?.find((m) => m.id === "gpt-4.1");
     expect(model?.reasoning).toBe(false);
-    expect(model?.input).toEqual(["text"]);
+    // gpt-4.1 is a vision-capable model; isLikelyVisionModel must apply on the
+    // Azure path too, not just the non-Azure one.
+    expect(model?.input).toEqual(["text", "image"]);
     expect(model?.compat).toEqual({ supportsStore: false });
 
     const modelRef = `${providerId}/gpt-4.1`;
@@ -312,7 +314,17 @@ describe("applyCustomApiConfig", () => {
   });
 
   it("detects vision-capable models for non-azure custom providers", () => {
-    for (const modelId of ["claude-sonnet-4-6", "gpt-4o-mini", "gemini-2.5-pro", "qwen-vl-max"]) {
+    for (const modelId of [
+      "claude-sonnet-4-6",
+      "gpt-4o-mini",
+      "gpt-4-turbo-2024-04-09",
+      "gpt-4-vision-preview",
+      "gemini-2.5-pro",
+      "qwen-vl-max",
+      "llava-13b",
+      "moondream2",
+      "phi-3.5-vision-instruct",
+    ]) {
       const result = applyCustomApiConfig({
         config: {},
         baseUrl: "https://llm.example.com/v1",
@@ -323,6 +335,22 @@ describe("applyCustomApiConfig", () => {
       });
       const provider = result.config.models?.providers?.custom;
       expect(provider?.models?.[0]?.input).toEqual(["text", "image"]);
+    }
+  });
+
+  it("detects vision-capable models for azure custom providers", () => {
+    for (const modelId of ["gpt-4o", "gpt-4.1", "gemini-2.5-pro"]) {
+      const result = applyCustomApiConfig({
+        config: {},
+        baseUrl: "https://my-resource.openai.azure.com",
+        modelId,
+        compatibility: "openai",
+        apiKey: "key123",
+      });
+      const providerId = result.providerId!;
+      const provider = result.config.models?.providers?.[providerId];
+      const model = provider?.models?.find((m) => m.id === modelId);
+      expect(model?.input).toEqual(["text", "image"]);
     }
   });
 

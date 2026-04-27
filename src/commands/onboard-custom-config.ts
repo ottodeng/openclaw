@@ -488,14 +488,17 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
   const hasModel = existingModels.some((model) => model.id === modelId);
   const isLikelyReasoningModel = isAzure && /\b(o[134]|gpt-([5-9]|\d{2,}))\b/i.test(modelId);
   const isLikelyVisionModel =
-    /\b(claude|gpt-4o|gpt-4\.1|gpt-5|gemini|qwen-vl|qwen2-vl|glm-4v|pixtral)\b/i.test(modelId);
+    /\b(claude|gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-4-vision|gpt-5|gemini|qwen-vl|qwen2-vl|glm-4v|pixtral|llava|moondream\d*|phi-.*vision)\b/i.test(
+      modelId,
+    );
+  const supportsImageInput = isLikelyVisionModel || (isAzure && isLikelyReasoningModel);
   const nextModel = isAzure
     ? {
         id: modelId,
         name: `${modelId} (Custom Provider)`,
         contextWindow: AZURE_DEFAULT_CONTEXT_WINDOW,
         maxTokens: AZURE_DEFAULT_MAX_TOKENS,
-        input: isLikelyReasoningModel
+        input: supportsImageInput
           ? (["text", "image"] as Array<"text" | "image">)
           : (["text"] as ["text"]),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
