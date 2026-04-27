@@ -986,6 +986,23 @@ function normalizePinnedWriteError(error: unknown): Error {
   if (error instanceof SafeOpenError) {
     return error;
   }
+  // Surface a clear message when the pinned-write helper fails because
+  // python3 is not installed (common in slim Docker images).
+  if (error instanceof Error) {
+    const cause = (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? error
+      : error.cause instanceof Error && (error.cause as NodeJS.ErrnoException).code === "ENOENT"
+        ? error.cause
+        : undefined;
+    if (cause && /python/i.test(cause.message)) {
+      return new SafeOpenError(
+        "invalid-path",
+        "pinned write failed: python3 is not installed. " +
+          "Install python3 (e.g. `apt-get install python3`) or use a base image that includes it.",
+        { cause: error },
+      );
+    }
+  }
   return new SafeOpenError("invalid-path", "path is not a regular file under root", {
     cause: error instanceof Error ? error : undefined,
   });
