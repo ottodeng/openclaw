@@ -458,6 +458,21 @@ describe("loadWorkspaceSkillEntries", () => {
       expect(names).not.toContain("too-deep");
     });
 
+    it("does not fall through to child skills when an immediate SKILL.md is invalid", async () => {
+      const workspaceDir = await createTempWorkspaceDir();
+      const parentDir = path.join(workspaceDir, "skills", "group", "parent");
+      await fs.mkdir(parentDir, { recursive: true });
+      await fs.writeFile(path.join(parentDir, "SKILL.md"), "---\nname: parent\n---\n", "utf-8");
+      await writeSkill({
+        dir: path.join(parentDir, "child"),
+        name: "too-deep",
+        description: "Should not be discovered through invalid parent fallback",
+      });
+
+      const names = loadTestWorkspaceSkillEntries(workspaceDir).map((entry) => entry.skill.name);
+      expect(names).not.toContain("too-deep");
+    });
+
     it("prefers the immediate SKILL.md and does not descend when one is present", async () => {
       const workspaceDir = await createTempWorkspaceDir();
       // skills/group/SKILL.md exists -> treat group as the skill itself.

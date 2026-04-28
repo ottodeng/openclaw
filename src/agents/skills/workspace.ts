@@ -350,12 +350,15 @@ function loadContainedSkillRecords(params: {
   source: string;
   maxSkillFileBytes: number;
 }): LoadedSkillRecord[] {
+  const expectedBaseDir = path.resolve(params.skillDir);
   const loaded = loadSkillsFromDirSafe({
     dir: params.skillDir,
     source: params.source,
     maxBytes: params.maxSkillFileBytes,
   });
-  return unwrapLoadedSkillRecords(loaded);
+  return unwrapLoadedSkillRecords(loaded).filter(
+    (record) => path.resolve(record.skill.baseDir) === expectedBaseDir,
+  );
 }
 
 function loadSkillEntries(
