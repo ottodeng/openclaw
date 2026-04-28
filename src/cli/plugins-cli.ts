@@ -13,6 +13,7 @@ import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
 import { shortenHomeInString, shortenHomePath } from "../utils.js";
 import { formatPluginLine } from "./plugins-list-format.js";
+import { attachBareCommandHelp } from "./program/bare-command-help.js";
 
 export type PluginsListOptions = {
   json?: boolean;
@@ -138,6 +139,7 @@ export function registerPluginsCli(program: Command) {
       () =>
         `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/plugins", "docs.openclaw.ai/cli/plugins")}\n`,
     );
+  attachBareCommandHelp(plugins);
 
   plugins
     .command("list")

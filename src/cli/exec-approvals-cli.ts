@@ -23,6 +23,7 @@ import { isRich, theme } from "../terminal/theme.js";
 import { callGatewayFromCli } from "./gateway-rpc.js";
 import { nodesCallOpts, resolveNodeId } from "./nodes-cli/rpc.js";
 import type { NodesRpcOpts } from "./nodes-cli/types.js";
+import { attachBareCommandHelp } from "./program/bare-command-help.js";
 
 type ExecApprovalsSnapshot = {
   path: string;
@@ -484,6 +485,7 @@ export function registerExecApprovalsCli(program: Command) {
       () =>
         `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/approvals", "docs.openclaw.ai/cli/approvals")}\n`,
     );
+  attachBareCommandHelp(approvals);
 
   const getCmd = approvals
     .command("get")

@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import {
+  attachBareCommandHelp,
   formatDocsLink,
   formatHelpExamples,
   theme,
@@ -112,6 +113,7 @@ export function registerMemoryCli(program: Command) {
           ["openclaw memory status --json", "Output machine-readable JSON (good for scripts)."],
         ])}\n\n${theme.muted("Docs:")} ${formatDocsLink("/cli/memory", "docs.openclaw.ai/cli/memory")}\n`,
     );
+  attachBareCommandHelp(memory);
 
   memory
     .command("status")

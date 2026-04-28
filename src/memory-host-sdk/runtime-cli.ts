@@ -1,5 +1,6 @@
 // Focused runtime contract for memory CLI/UI helpers.
 
+export { attachBareCommandHelp } from "../cli/program/bare-command-help.js";
 export { formatErrorMessage, withManager } from "../cli/cli-utils.js";
 export { formatHelpExamples } from "../cli/help-format.js";
 export { resolveCommandSecretRefsViaGateway } from "../cli/command-secret-gateway.js";

@@ -9,6 +9,7 @@ import { formatCliChannelOptions } from "./channel-options.js";
 import { runCommandWithRuntime } from "./cli-utils.js";
 import { hasExplicitOptions } from "./command-options.js";
 import { formatHelpExamples } from "./help-format.js";
+import { attachBareCommandHelp } from "./program/bare-command-help.js";
 
 type ChannelsCommandsModule = typeof import("../commands/channels.js");
 
@@ -82,6 +83,7 @@ export function registerChannelsCli(program: Command) {
           "docs.openclaw.ai/cli/channels",
         )}\n`,
     );
+  attachBareCommandHelp(channels);
 
   channels
     .command("list")

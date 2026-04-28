@@ -12,6 +12,7 @@ import {
   normalizeStringifiedOptionalString,
 } from "../shared/string-coerce.js";
 import { resolveGatewayAuthOptions } from "./gateway-secret-options.js";
+import { attachBareCommandHelp } from "./program/bare-command-help.js";
 
 function fail(message: string): never {
   defaultRuntime.error(message);
@@ -25,6 +26,7 @@ function printJson(value: unknown): void {
 
 export function registerMcpCli(program: Command) {
   const mcp = program.command("mcp").description("Manage OpenClaw MCP config and channel bridge");
+  attachBareCommandHelp(mcp);
 
   mcp
     .command("serve")

@@ -25,6 +25,7 @@ import {
 import { sanitizeForLog } from "../terminal/ansi.js";
 import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
+import { attachBareCommandHelp } from "./program/bare-command-help.js";
 import { withProgress } from "./progress.js";
 
 type DevicesRpcOpts = {
@@ -346,6 +347,7 @@ function resolveRequiredDeviceRole(
 
 export function registerDevicesCli(program: Command) {
   const devices = program.command("devices").description("Device pairing and auth tokens");
+  attachBareCommandHelp(devices);
 
   devicesCallOpts(
     devices
