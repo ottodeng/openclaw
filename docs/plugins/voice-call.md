@@ -291,13 +291,58 @@ options.
 Current runtime behavior:
 
 - `streaming.provider` is optional. If unset, Voice Call uses the first registered realtime transcription provider.
-- Bundled realtime transcription providers: Deepgram (`deepgram`), ElevenLabs (`elevenlabs`), Mistral (`mistral`), OpenAI (`openai`), and xAI (`xai`), registered by their provider plugins.
+- Bundled realtime transcription providers: Azure Speech (`azure-speech`), Deepgram (`deepgram`), ElevenLabs (`elevenlabs`), Mistral (`mistral`), OpenAI (`openai`), and xAI (`xai`), registered by their provider plugins.
 - Provider-owned raw config lives under `streaming.providers.<providerId>`.
 - If `streaming.provider` points at an unregistered provider, or none is registered, Voice Call logs a warning and skips media streaming instead of failing the whole plugin.
 
 ### Streaming provider examples
 
 <Tabs>
+  <Tab title="Azure Speech">
+    Defaults: API key `streaming.providers.azure-speech.apiKey` or
+    `AZURE_SPEECH_KEY` / `AZURE_SPEECH_API_KEY` / `SPEECH_KEY`; region
+    `streaming.providers.azure-speech.region` or `AZURE_SPEECH_REGION` /
+    `SPEECH_REGION` (or set `endpoint` instead); language `en-US`; encoding
+    `mulaw`; sample rate `8000`; `endSilenceTimeoutMs: 800`;
+    `initialSilenceTimeoutMs: 5000`. Set `candidateLanguages` to enable
+    automatic language detection (e.g. `["en-US", "zh-CN"]`).
+
+    Uses the official `microsoft-cognitiveservices-speech-sdk` package over
+    Azure's documented continuous-recognition WebSocket protocol, which
+    handles partial results, automatic reconnects, and final-utterance
+    detection.
+
+    ```json5
+    {
+      plugins: {
+        entries: {
+          "voice-call": {
+            config: {
+              streaming: {
+                enabled: true,
+                provider: "azure-speech",
+                streamPath: "/voice/stream",
+                providers: {
+                  "azure-speech": {
+                    apiKey: "${AZURE_SPEECH_KEY}",
+                    region: "${AZURE_SPEECH_REGION}", // e.g. eastus, southeastasia
+                    language: "en-US",
+                    encoding: "mulaw",
+                    sampleRate: 8000,
+                    endSilenceTimeoutMs: 800,
+                    // Optional: enable Azure auto language ID instead of `language`
+                    // candidateLanguages: ["en-US", "zh-CN"],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }
+    ```
+
+  </Tab>
   <Tab title="OpenAI">
     Defaults: API key `streaming.providers.openai.apiKey` or
     `OPENAI_API_KEY`; model `gpt-4o-transcribe`; `silenceDurationMs: 800`;

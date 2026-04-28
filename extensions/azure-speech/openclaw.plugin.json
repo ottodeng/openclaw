@@ -1,29 +1,32 @@
 {
   "id": "azure-speech",
+  "enabledByDefault": true,
+  "name": "Azure Speech",
+  "description": "Azure AI Speech text-to-speech (MP3, native Ogg/Opus voice notes, PCM telephony) and realtime speech-to-text transcription for voice-call.",
   "activation": {
     "onStartup": false
   },
-  "enabledByDefault": true,
-  "name": "Azure Speech",
-  "description": "Azure AI Speech text-to-speech (MP3, native Ogg/Opus voice notes, PCM telephony).",
   "providerAuthEnvVars": {
     "azure-speech": [
       "AZURE_SPEECH_KEY",
       "AZURE_SPEECH_API_KEY",
       "SPEECH_KEY",
       "AZURE_SPEECH_REGION",
-      "SPEECH_REGION"
+      "SPEECH_REGION",
+      "AZURE_SPEECH_ENDPOINT"
     ],
     "azure": [
       "AZURE_SPEECH_KEY",
       "AZURE_SPEECH_API_KEY",
       "SPEECH_KEY",
       "AZURE_SPEECH_REGION",
-      "SPEECH_REGION"
+      "SPEECH_REGION",
+      "AZURE_SPEECH_ENDPOINT"
     ]
   },
   "contracts": {
-    "speechProviders": ["azure-speech", "azure"]
+    "speechProviders": ["azure-speech", "azure"],
+    "realtimeTranscriptionProviders": ["azure-speech", "azure"]
   },
   "configSchema": {
     "type": "object",
@@ -60,6 +63,34 @@
       "voiceNoteOutputFormat": {
         "type": "string",
         "description": "Azure Speech X-Microsoft-OutputFormat for voice-note output."
+      },
+      "language": {
+        "type": "string",
+        "description": "Realtime STT primary recognition language (BCP-47), e.g. en-US, zh-CN. Defaults to en-US."
+      },
+      "sampleRate": {
+        "type": "number",
+        "description": "Realtime STT input audio sample rate in Hz (default 8000 to match telephony / Twilio media stream)."
+      },
+      "encoding": {
+        "type": "string",
+        "enum": ["pcm", "mulaw", "alaw"],
+        "description": "Realtime STT input audio encoding (default mulaw for telephony; use pcm for 16-bit linear)."
+      },
+      "initialSilenceTimeoutMs": {
+        "type": "number",
+        "description": "Realtime STT timeout (ms) before any speech is detected (default 5000)."
+      },
+      "endSilenceTimeoutMs": {
+        "type": "number",
+        "description": "Realtime STT trailing-silence threshold (ms) for finalizing an utterance (default 800)."
+      },
+      "candidateLanguages": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Realtime STT auto language detection candidates, e.g. [\"en-US\",\"zh-CN\"]. When set, replaces the single `language` setting."
       }
     }
   }
