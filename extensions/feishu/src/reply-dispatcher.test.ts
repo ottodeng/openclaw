@@ -477,7 +477,7 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     );
   });
 
-  it("treats block updates as delta chunks", async () => {
+  it("merges block updates with the latest partial snapshot", async () => {
     resolveFeishuAccountMock.mockReturnValue({
       accountId: "main",
       appId: "app_id",
@@ -499,9 +499,52 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
 
     expect(streamingInstances).toHaveLength(1);
     expect(streamingInstances[0].close).toHaveBeenCalledTimes(1);
-    expect(streamingInstances[0].close).toHaveBeenCalledWith("hellolo world", {
+    // Block payload overlaps the partial snapshot ("lo"), so mergeStreamingText
+    // produces "hello world" rather than concatenating to "hellolo world".
+    expect(streamingInstances[0].close).toHaveBeenCalledWith("hello world", {
       note: "Agent: agent",
     });
+  });
+
+  it("does not duplicate text when block payloads partially repeat partial snapshots", async () => {
+    resolveFeishuAccountMock.mockReturnValue({
+      accountId: "main",
+      appId: "app_id",
+      appSecret: "app_secret",
+      domain: "feishu",
+      config: {
+        renderMode: "card",
+        streaming: true,
+      },
+    });
+
+    const { result, options } = createDispatcherHarness({
+      runtime: createRuntimeLogger(),
+    });
+    await options.onReplyStart?.();
+    // Simulate a long-form reply: partial snapshots arrive incrementally.
+    result.replyOptions.onPartialReply?.({
+      text: "Step 1: analysing the request.",
+    });
+    result.replyOptions.onPartialReply?.({
+      text: "Step 1: analysing the request.\nStep 2: calling tools.",
+    });
+    // Then a block payload arrives that re-includes earlier prefix plus new text.
+    await options.deliver(
+      {
+        text: "Step 1: analysing the request.\nStep 2: calling tools.\nStep 3: done.",
+      },
+      { kind: "block" },
+    );
+    await options.onIdle?.();
+
+    expect(streamingInstances).toHaveLength(1);
+    expect(streamingInstances[0].close).toHaveBeenCalledTimes(1);
+    // No duplication: the block fully contains the partial snapshot.
+    expect(streamingInstances[0].close).toHaveBeenCalledWith(
+      "Step 1: analysing the request.\nStep 2: calling tools.\nStep 3: done.",
+      { note: "Agent: agent" },
+    );
   });
 
   it("skips block payloads that exactly repeat the latest partial snapshot", async () => {
