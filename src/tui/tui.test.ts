@@ -5,6 +5,8 @@ import { getSlashCommands, parseCommand } from "./commands.js";
 import {
   createBackspaceDeduper,
   drainAndStopTuiSafely,
+  INITIALIZATION_ACTIVITY_STATUS,
+  isBusyActivityStatus,
   isIgnorableTuiStopError,
   resolveCodexCliBin,
   resolveCtrlCAction,
@@ -171,6 +173,28 @@ describe("resolveInitialTuiAgentId", () => {
         cwd: "/var/tmp/unrelated",
       }),
     ).toBe("main");
+  });
+});
+
+describe("isBusyActivityStatus", () => {
+  it("treats the post-connect initialization status as busy so the loader keeps spinning during refreshAgents + loadHistory", () => {
+    // Regression for #74385: TUI must not render `idle` while the hatch
+    // initialization work is still running.
+    expect(INITIALIZATION_ACTIVITY_STATUS).toBe("initializing");
+    expect(isBusyActivityStatus(INITIALIZATION_ACTIVITY_STATUS)).toBe(true);
+  });
+
+  it("treats existing send/waiting/streaming/running as busy", () => {
+    expect(isBusyActivityStatus("sending")).toBe(true);
+    expect(isBusyActivityStatus("waiting")).toBe(true);
+    expect(isBusyActivityStatus("streaming")).toBe(true);
+    expect(isBusyActivityStatus("running")).toBe(true);
+  });
+
+  it("treats idle and unknown statuses as not busy", () => {
+    expect(isBusyActivityStatus("idle")).toBe(false);
+    expect(isBusyActivityStatus("")).toBe(false);
+    expect(isBusyActivityStatus("pairing required: run openclaw devices list")).toBe(false);
   });
 });
 

@@ -183,6 +183,32 @@ export function resolveInitialTuiAgentId(params: {
   return normalizeAgentId(params.fallbackAgentId);
 }
 
+/**
+ * Activity status used while the TUI is performing the post-connect
+ * initialization work (refreshAgents + loadHistory) before the first user or
+ * hatch auto-message can be sent. Surfacing this state lets the existing
+ * busy-state machinery render the loader instead of leaving the status line
+ * stuck on `idle`, which previously made the bot look hung for up to a
+ * minute on slow first connects.
+ */
+export const INITIALIZATION_ACTIVITY_STATUS = "initializing";
+
+const BUSY_ACTIVITY_STATUSES: ReadonlySet<string> = new Set([
+  "sending",
+  "waiting",
+  "streaming",
+  "running",
+  INITIALIZATION_ACTIVITY_STATUS,
+]);
+
+/**
+ * Returns true when the activity status should drive the busy loader render
+ * path (spinner + elapsed timer) rather than the static idle text.
+ */
+export function isBusyActivityStatus(status: string): boolean {
+  return BUSY_ACTIVITY_STATUSES.has(status);
+}
+
 export function resolveGatewayDisconnectState(reason?: string): {
   connectionStatus: string;
   activityStatus: string;
@@ -594,7 +620,6 @@ export async function runTui(opts: RunTuiOptions): Promise<TuiResult> {
     );
   };
 
-  const busyStates = new Set(["sending", "waiting", "streaming", "running"]);
   let statusText: Text | null = null;
   let statusLoader: Loader | null = null;
 
@@ -666,7 +691,7 @@ export async function runTui(opts: RunTuiOptions): Promise<TuiResult> {
       return;
     }
     statusTimer = setInterval(() => {
-      if (!busyStates.has(activityStatus)) {
+      if (!isBusyActivityStatus(activityStatus)) {
         return;
       }
       updateBusyStatusMessage();
@@ -712,7 +737,7 @@ export async function runTui(opts: RunTuiOptions): Promise<TuiResult> {
   };
 
   const renderStatus = () => {
-    const isBusy = busyStates.has(activityStatus);
+    const isBusy = isBusyActivityStatus(activityStatus);
     if (isBusy) {
       if (!statusStartedAt || lastActivityStatus !== activityStatus) {
         statusStartedAt = Date.now();
@@ -1079,21 +1104,39 @@ export async function runTui(opts: RunTuiOptions): Promise<TuiResult> {
       reconnectStreamingWatchdog();
     }
     setConnectionStatus(isLocalMode ? "local ready" : "connected");
+    // Show the busy loader while we run the post-connect initialization
+    // (refreshAgents + loadHistory). Without this the status line reads
+    // `local ready | idle` for the entire warm-up window — up to a minute on
+    // slow first connects of a Terminal hatch — even though the auto-message
+    // hasn't been able to start yet.
+    setActivityStatus(INITIALIZATION_ACTIVITY_STATUS);
     void (async () => {
-      await refreshAgents();
-      updateHeader();
-      await loadHistory();
-      setConnectionStatus(
-        isLocalMode ? "local ready" : reconnected ? "gateway reconnected" : "gateway connected",
-        4000,
-      );
-      tui.requestRender();
-      if (!autoMessageSent && autoMessage) {
-        autoMessageSent = true;
-        await sendMessage(autoMessage);
+      try {
+        await refreshAgents();
+        updateHeader();
+        await loadHistory();
+        setConnectionStatus(
+          isLocalMode ? "local ready" : reconnected ? "gateway reconnected" : "gateway connected",
+          4000,
+        );
+        tui.requestRender();
+        if (!autoMessageSent && autoMessage) {
+          autoMessageSent = true;
+          // sendMessage transitions the activity status into `sending` and
+          // then `waiting`, so the loader stays continuous from init →
+          // hatch auto-message without a flicker back to idle.
+          await sendMessage(autoMessage);
+        } else if (activityStatus === INITIALIZATION_ACTIVITY_STATUS) {
+          setActivityStatus("idle");
+        }
+        updateFooter();
+        tui.requestRender();
+      } catch (err) {
+        if (activityStatus === INITIALIZATION_ACTIVITY_STATUS) {
+          setActivityStatus("idle");
+        }
+        throw err;
       }
-      updateFooter();
-      tui.requestRender();
     })();
   };
 
