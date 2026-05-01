@@ -47,4 +47,52 @@ describe("replaceManagedMarkdownBlock", () => {
       }),
     ).toBe("alpha\n\n<!-- start -->\nbeta\n<!-- end -->\n");
   });
+
+  it("matches blocks with CRLF line endings", () => {
+    const original =
+      "# Title\r\n\r\n## Generated\r\n<!-- start -->\r\n- old\r\n<!-- end -->\r\n";
+    expect(
+      replaceManagedMarkdownBlock({
+        original,
+        heading: "## Generated",
+        startMarker: "<!-- start -->",
+        endMarker: "<!-- end -->",
+        body: "- new",
+      }),
+    ).toBe(
+      "# Title\r\n\r\n## Generated\n<!-- start -->\n- new\n<!-- end -->\r\n",
+    );
+  });
+
+  it("collapses pre-existing duplicate blocks back to one", () => {
+    const dup = "## Generated\n<!-- start -->\n- old\n<!-- end -->";
+    const original = `# Title\n\n${dup}\n\n${dup}\n\n${dup}\n`;
+    const result = replaceManagedMarkdownBlock({
+      original,
+      heading: "## Generated",
+      startMarker: "<!-- start -->",
+      endMarker: "<!-- end -->",
+      body: "- new",
+    });
+    const newBlock = "## Generated\n<!-- start -->\n- new\n<!-- end -->";
+    // Should contain exactly one copy of the new block.
+    const matches = result.split(newBlock).length - 1;
+    expect(matches).toBe(1);
+    // And no remnants of the old body.
+    expect(result).not.toContain("- old");
+  });
+
+  it("is idempotent across repeated calls with the same body", () => {
+    const params = {
+      heading: "## Generated",
+      startMarker: "<!-- start -->",
+      endMarker: "<!-- end -->",
+      body: "- only",
+    } as const;
+    const first = replaceManagedMarkdownBlock({ original: "# Title\n", ...params });
+    const second = replaceManagedMarkdownBlock({ original: first, ...params });
+    const third = replaceManagedMarkdownBlock({ original: second, ...params });
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+  });
 });
