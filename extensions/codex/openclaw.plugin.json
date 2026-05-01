@@ -4,7 +4,8 @@
   "description": "Codex app-server harness and Codex-managed GPT model catalog.",
   "providers": ["codex"],
   "contracts": {
-    "mediaUnderstandingProviders": ["codex"]
+    "mediaUnderstandingProviders": ["codex"],
+    "migrationProviders": ["codex"]
   },
   "mediaUnderstandingProviderMetadata": {
     "codex": {
@@ -18,6 +19,7 @@
   "syntheticAuthRefs": ["codex"],
   "nonSecretAuthMarkers": ["codex-app-server"],
   "activation": {
+    "onStartup": false,
     "onAgentHarnesses": ["codex"]
   },
   "commandAliases": [
@@ -108,6 +110,10 @@
           "headers": {
             "type": "object",
             "additionalProperties": { "type": "string" }
+          },
+          "clearEnv": {
+            "type": "array",
+            "items": { "type": "string" }
           },
           "requestTimeoutMs": {
             "type": "number",
@@ -232,6 +238,11 @@
     "appServer.headers": {
       "label": "Headers",
       "help": "Additional headers sent to the WebSocket app-server.",
+      "advanced": true
+    },
+    "appServer.clearEnv": {
+      "label": "Clear Environment",
+      "help": "Environment variable names removed from the spawned stdio app-server process after overrides are applied.",
       "advanced": true
     },
     "appServer.requestTimeoutMs": {

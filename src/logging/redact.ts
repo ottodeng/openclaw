@@ -11,8 +11,12 @@ const DEFAULT_REDACT_KEEP_START = 6;
 const DEFAULT_REDACT_KEEP_END = 4;
 
 const DEFAULT_REDACT_PATTERNS: string[] = [
-  // ENV-style assignments.
-  String.raw`\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)\b\s*[=:]\s*(["']?)([^\s"'\\]+)\1`,
+  // ENV-style assignments. Keep this case-sensitive so diagnostics like
+  // `Unrecognized key: "llm"` do not lose the actual config key.
+  String.raw`/\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)\b\s*[=:]\s*(["']?)([^\s"'\\]+)\1/g`,
+  // URL query parameters. Keep this separate from ENV-style assignments so
+  // lower-case URL secrets stay redacted without hiding config-key diagnostics.
+  String.raw`/[?&](?:access[-_]?token|auth[-_]?token|hook[-_]?token|refresh[-_]?token|api[-_]?key|client[-_]?secret|token|key|secret|password|pass|passwd|auth|signature)=([^&\s"'<>]+)/gi`,
   // JSON fields.
   String.raw`"(?:apiKey|token|secret|password|passwd|accessToken|refreshToken)"\s*:\s*"([^"]+)"`,
   // CLI flags.
@@ -20,6 +24,9 @@ const DEFAULT_REDACT_PATTERNS: string[] = [
   // Authorization headers.
   String.raw`Authorization\s*[:=]\s*Bearer\s+([A-Za-z0-9._\-+=]+)`,
   String.raw`\bBearer\s+([A-Za-z0-9._\-+=]{18,})\b`,
+  // Standalone token assignments in CLI or HTTP diagnostics. URL query params
+  // are handled above so non-secret params survive and long values stay hinted.
+  String.raw`(^|[\s,;])(?:access_token|refresh_token|api[-_]?key|token|secret|password|passwd)=([^\s&#]+)`,
   // PEM blocks.
   String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+?-----END [A-Z ]*PRIVATE KEY-----`,
   // Common token prefixes.
@@ -32,6 +39,11 @@ const DEFAULT_REDACT_PATTERNS: string[] = [
   String.raw`\b(AIza[0-9A-Za-z\-_]{20,})\b`,
   String.raw`\b(pplx-[A-Za-z0-9_-]{10,})\b`,
   String.raw`\b(npm_[A-Za-z0-9]{10,})\b`,
+  // Additional access-key and token-style prefixes.
+  String.raw`\b(AKID[A-Za-z0-9]{10,})\b`,
+  String.raw`\b(LTAI[A-Za-z0-9]{10,})\b`,
+  String.raw`\b(hf_[A-Za-z0-9]{10,})\b`,
+  String.raw`\b(r8_[A-Za-z0-9]{10,})\b`,
   // Telegram Bot API URLs embed the token as `/bot<token>/...` (no word-boundary before digits).
   String.raw`\bbot(\d{6,}:[A-Za-z0-9_-]{20,})\b`,
   String.raw`\b(\d{6,}:[A-Za-z0-9_-]{20,})\b`,
@@ -156,6 +168,22 @@ export function redactToolDetail(detail: string): string {
     return detail;
   }
   return redactSensitiveText(detail, resolved);
+}
+
+// Forces tools-mode regardless of `logging.redactSensitive` (which governs log
+// output, not UI surfaces), and merges user `logging.redactPatterns` with the
+// built-in defaults so both apply.
+export function redactToolPayloadText(text: string): string {
+  if (!text) {
+    return text;
+  }
+  const cfg = readLoggingConfig();
+  const userPatterns = cfg?.redactPatterns;
+  const patterns =
+    userPatterns && userPatterns.length > 0
+      ? [...userPatterns, ...DEFAULT_REDACT_PATTERNS]
+      : undefined;
+  return redactSensitiveText(text, { mode: "tools", patterns });
 }
 
 export function getDefaultRedactPatterns(): string[] {

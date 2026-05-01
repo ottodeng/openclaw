@@ -96,9 +96,24 @@ describe("agent defaults schema", () => {
     const result = AgentDefaultsSchema.parse({
       compaction: {
         truncateAfterCompaction: true,
+        maxActiveTranscriptBytes: "20mb",
       },
     })!;
     expect(result.compaction?.truncateAfterCompaction).toBe(true);
+    expect(result.compaction?.maxActiveTranscriptBytes).toBe("20mb");
+  });
+
+  it("accepts compaction.midTurnPrecheck.enabled", () => {
+    const result = AgentDefaultsSchema.parse({
+      compaction: {
+        mode: "safeguard",
+        midTurnPrecheck: {
+          enabled: true,
+        },
+      },
+    })!;
+
+    expect(result.compaction?.midTurnPrecheck?.enabled).toBe(true);
   });
 
   it("accepts focused contextLimits on defaults and agent entries", () => {
@@ -129,15 +144,17 @@ describe("agent defaults schema", () => {
 
   it("accepts positive heartbeat timeoutSeconds on defaults and agent entries", () => {
     const defaults = AgentDefaultsSchema.parse({
-      heartbeat: { timeoutSeconds: 45 },
+      heartbeat: { timeoutSeconds: 45, skipWhenBusy: true },
     })!;
     const agent = AgentEntrySchema.parse({
       id: "ops",
-      heartbeat: { timeoutSeconds: 45 },
+      heartbeat: { timeoutSeconds: 45, skipWhenBusy: true },
     });
 
     expect(defaults.heartbeat?.timeoutSeconds).toBe(45);
+    expect(defaults.heartbeat?.skipWhenBusy).toBe(true);
     expect(agent.heartbeat?.timeoutSeconds).toBe(45);
+    expect(agent.heartbeat?.skipWhenBusy).toBe(true);
   });
 
   it("accepts per-agent TTS overrides", () => {
