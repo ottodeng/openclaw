@@ -696,6 +696,87 @@ describe("searchMemoryWiki", () => {
     expect(results[0]?.corpus).toBe("wiki");
     expect(manager.search).not.toHaveBeenCalled();
   });
+
+  it("returns wiki results when the shared memory manager has no callable .search", async () => {
+    const { rootDir, config } = await createQueryVault({
+      initialize: true,
+      config: {
+        search: { backend: "shared", corpus: "all" },
+      },
+    });
+    await fs.writeFile(
+      path.join(rootDir, "sources", "alpha.md"),
+      renderWikiMarkdown({
+        frontmatter: { pageType: "source", id: "source.alpha", title: "Alpha Source" },
+        body: "# Alpha Source\n\nalpha body text\n",
+      }),
+      "utf8",
+    );
+    // Simulate a third-party active memory plugin (e.g. memory-lancedb-pro) that
+    // registers a manager without a callable .search method. wiki_search must not
+    // throw and must still return the wiki-only results that were already
+    // computed for corpus="all".
+    const malformedManager = {
+      readFile: vi.fn(),
+      status: vi.fn(),
+      probeEmbeddingAvailability: vi.fn(),
+      probeVectorAvailability: vi.fn(),
+      close: vi.fn(),
+    };
+    getActiveMemorySearchManagerMock.mockResolvedValue({ manager: malformedManager });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const results = await searchMemoryWiki({
+        config,
+        appConfig: createAppConfig(),
+        query: "alpha",
+        maxResults: 5,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]?.corpus).toBe("wiki");
+      expect(results.some((result) => result.corpus === "memory")).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("returns wiki results when the shared memory manager .search rejects", async () => {
+    const { rootDir, config } = await createQueryVault({
+      initialize: true,
+      config: {
+        search: { backend: "shared", corpus: "all" },
+      },
+    });
+    await fs.writeFile(
+      path.join(rootDir, "sources", "alpha.md"),
+      renderWikiMarkdown({
+        frontmatter: { pageType: "source", id: "source.alpha", title: "Alpha Source" },
+        body: "# Alpha Source\n\nalpha body text\n",
+      }),
+      "utf8",
+    );
+    const manager = createMemoryManager();
+    manager.search = vi.fn().mockRejectedValue(new Error("shared memory boom"));
+    getActiveMemorySearchManagerMock.mockResolvedValue({ manager });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const results = await searchMemoryWiki({
+        config,
+        appConfig: createAppConfig(),
+        query: "alpha",
+        maxResults: 5,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]?.corpus).toBe("wiki");
+      expect(manager.search).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });
 
 describe("getMemoryWikiPage", () => {

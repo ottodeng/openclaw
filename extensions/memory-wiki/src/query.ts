@@ -1115,6 +1115,38 @@ function toMemoryWikiSearchResult(
   };
 }
 
+async function searchSharedMemorySafely(
+  manager: { search?: unknown } | null,
+  query: string,
+  maxResults: number,
+  mode: WikiSearchMode,
+): Promise<WikiSearchResult[]> {
+  if (!manager) {
+    return [];
+  }
+  const search = (manager as { search?: unknown }).search;
+  if (typeof search !== "function") {
+    console.warn(
+      "[memory-wiki] shared memory manager has no callable .search; skipping memory results",
+    );
+    return [];
+  }
+  try {
+    const results =
+      (await (
+        search as (q: string, opts: { maxResults: number }) => Promise<MemorySearchResult[]>
+      ).call(manager, query, { maxResults })) ?? [];
+    return results.map((result) => toMemoryWikiSearchResult(result, mode));
+  } catch (error) {
+    console.warn(
+      `[memory-wiki] shared memory manager .search failed; returning empty memory results: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return [];
+  }
+}
+
 async function searchWikiCorpus(params: {
   rootDir: string;
   query: string;
@@ -1213,11 +1245,12 @@ export async function searchMemoryWiki(params: {
         agentSessionKey: params.agentSessionKey,
       })
     : null;
-  const memoryResults = sharedMemoryManager
-    ? (await sharedMemoryManager.search(params.query, { maxResults })).map((result) =>
-        toMemoryWikiSearchResult(result, mode),
-      )
-    : [];
+  const memoryResults = await searchSharedMemorySafely(
+    sharedMemoryManager,
+    params.query,
+    maxResults,
+    mode,
+  );
 
   return [...wikiResults, ...memoryResults]
     .toSorted((left, right) => {
