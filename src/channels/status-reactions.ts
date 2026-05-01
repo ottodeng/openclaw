@@ -335,6 +335,26 @@ export function createStatusReactionController(params: {
     // Directly enqueue to ensure we return the updated promise
     return enqueue(async () => {
       await applyEmoji(emoji);
+      // Terminal cleanup: best-effort remove every other known reaction.
+      // applyEmoji() only removes the immediately previous emoji, so a failed
+      // transition (e.g. a Discord rate-limit or out-of-order phase update)
+      // can leave a stale intermediate reaction (e.g. thinking) on the message
+      // alongside the terminal reaction. After a terminal state we want
+      // exactly one reaction on the message: the terminal one. See #75458.
+      if (adapter.removeReaction) {
+        for (const previous of knownEmojis) {
+          if (!previous || previous === emoji) {
+            continue;
+          }
+          try {
+            await adapter.removeReaction(previous);
+          } catch (err) {
+            if (onError) {
+              onError(err);
+            }
+          }
+        }
+      }
       pendingEmoji = "";
     });
   }

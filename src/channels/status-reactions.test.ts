@@ -232,6 +232,60 @@ describe("createStatusReactionController", () => {
     expect(calls.length).toBe(callsAfterTerminal);
   });
 
+  it(
+    "should remove every other known emoji on terminal state to avoid leftover " +
+      "intermediate reactions when an earlier remove was dropped (#75458)",
+    async () => {
+      const { calls, controller } = createEnabledController();
+
+      // Walk through several intermediate states so multiple emojis end up
+      // observed by the controller. Only one is current at any time, but a
+      // dropped removeReaction (e.g. Discord rate-limit) could leave any of
+      // the previous reactions on the message in real life.
+      void controller.setQueued();
+      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.debounceMs);
+      void controller.setThinking();
+      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.debounceMs);
+      void controller.setTool("exec");
+      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.debounceMs);
+
+      // Reach terminal state.
+      await controller.setDone();
+      await vi.runAllTimersAsync();
+
+      const removeEmojis = calls
+        .filter((c) => c.method === "remove")
+        .map((c) => c.emoji);
+
+      // Every non-terminal emoji that the controller might have set should be
+      // explicitly removed at the terminal state, so the message ends up with
+      // exactly the terminal reaction.
+      expect(removeEmojis).toContain(DEFAULT_EMOJIS.thinking);
+      expect(removeEmojis).toContain(DEFAULT_EMOJIS.coding);
+      expect(removeEmojis).toContain(DEFAULT_EMOJIS.queued);
+      // The terminal emoji itself must not be removed.
+      expect(removeEmojis).not.toContain(DEFAULT_EMOJIS.done);
+    },
+  );
+
+  it(
+    "should not call removeReaction on terminal cleanup when adapter lacks it (#75458)",
+    async () => {
+      const { calls, controller } = createSetOnlyController();
+
+      void controller.setThinking();
+      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.debounceMs);
+
+      await controller.setDone();
+      await vi.runAllTimersAsync();
+
+      const removeCalls = calls.filter((c) => c.method === "remove");
+      expect(removeCalls).toHaveLength(0);
+      // Terminal emoji should still be set.
+      expectSetEmojiCall(calls, DEFAULT_EMOJIS.done);
+    },
+  );
+
   it("should only fire last state when rapidly changing (debounce)", async () => {
     const { calls, controller } = createEnabledController();
 
