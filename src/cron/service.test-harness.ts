@@ -246,6 +246,7 @@ export function createMockCronStateForJobs(params: {
     op: Promise.resolve(),
     warnedDisabled: false,
     warnedMissingSessionTargetJobIds: new Set<string>(),
+    warnedMalformedScheduleJobIds: new Set<string>(),
     deps: {
       storePath: "/mock/path",
       cronEnabled: true,
