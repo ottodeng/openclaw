@@ -6,6 +6,8 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Sessions/cleanup: `openclaw sessions cleanup` now prunes leftover archived transcript files (`<sessionId>.jsonl.deleted.<ts>`, `<sessionId>.jsonl.reset.<ts>`) past their retention windows and removes orphaned compaction checkpoint files (`<sessionId>.checkpoint.<uuid>.jsonl`) for sessions no longer in the index. The JSON summary gains an `archivedFiles` field reporting scanned/removed counts and bytes freed; `--dry-run` reports the same orphan-checkpoint set as `--enforce`. Fixes #75658.
+
 ### Fixes
 
 - CLI/update: treat inherited Gateway service markers as origin hints and only block package replacement when the managed Gateway is still live, so self-updates can stop the service and continue safely. (#75729) Thanks @hxy91819.
