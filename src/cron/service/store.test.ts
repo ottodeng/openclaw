@@ -386,4 +386,157 @@ describe("cron service store seam coverage", () => {
 
     expect(findJobOrThrow(state, jobId).state.nextRunAtMs).toBeUndefined();
   });
+
+  it("does not throw on reload when a persisted job has a string-shaped schedule (#75886)", async () => {
+    const { storePath } = await makeStorePath();
+
+    await fs.mkdir(path.dirname(storePath), { recursive: true });
+    await fs.writeFile(
+      storePath,
+      JSON.stringify(
+        {
+          version: 1,
+          jobs: [
+            {
+              id: "malformed-string-schedule",
+              name: "malformed string schedule",
+              enabled: true,
+              createdAtMs: STORE_TEST_NOW - 60_000,
+              updatedAtMs: STORE_TEST_NOW - 60_000,
+              // Malformed: a bare string instead of `{ kind: "cron", expr }`.
+              schedule: "0 6 * * *",
+              sessionTarget: "main",
+              wakeMode: "now",
+              payload: { kind: "systemEvent", text: "tick" },
+              state: {},
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const state = createStoreTestState(storePath);
+
+    await expect(ensureLoaded(state, { skipRecompute: true })).resolves.toBeUndefined();
+    // Second reload must also be non-throwing: the prior failure mode was
+    // cronSchedulingInputsEqual throwing during the comparison against the
+    // previous in-memory copy of the same malformed job.
+    await expect(
+      ensureLoaded(state, { forceReload: true, skipRecompute: true }),
+    ).resolves.toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storePath,
+        jobId: "malformed-string-schedule",
+      }),
+      expect.stringContaining("unsupported schedule shape"),
+    );
+  });
+
+  it("keeps other valid jobs scheduled when one persisted job has a malformed schedule (#75886)", async () => {
+    const { storePath } = await makeStorePath();
+
+    await fs.mkdir(path.dirname(storePath), { recursive: true });
+    await fs.writeFile(
+      storePath,
+      JSON.stringify(
+        {
+          version: 1,
+          jobs: [
+            {
+              id: "malformed-string-schedule",
+              name: "malformed",
+              enabled: true,
+              createdAtMs: STORE_TEST_NOW - 60_000,
+              updatedAtMs: STORE_TEST_NOW - 60_000,
+              schedule: "0 6 * * *",
+              sessionTarget: "main",
+              wakeMode: "now",
+              payload: { kind: "systemEvent", text: "tick" },
+              state: {},
+            },
+            {
+              id: "valid-every-job",
+              name: "valid every job",
+              enabled: true,
+              createdAtMs: STORE_TEST_NOW - 60_000,
+              updatedAtMs: STORE_TEST_NOW - 60_000,
+              schedule: { kind: "every", everyMs: 60_000 },
+              sessionTarget: "main",
+              wakeMode: "now",
+              payload: { kind: "systemEvent", text: "tick" },
+              state: {},
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const state = createStoreTestState(storePath);
+    await ensureLoaded(state);
+
+    const validJob = findJobOrThrow(state, "valid-every-job");
+    expect(typeof validJob.state.nextRunAtMs).toBe("number");
+  });
+
+  it("preserves schedule-change invalidation when transitioning between malformed shapes (#75886)", async () => {
+    const { storePath } = await makeStorePath();
+    const staleNextRunAtMs = STORE_TEST_NOW + 3_600_000;
+
+    const baseJob = {
+      id: "malformed-transition-job",
+      name: "malformed transition",
+      enabled: true,
+      createdAtMs: STORE_TEST_NOW - 60_000,
+      updatedAtMs: STORE_TEST_NOW - 60_000,
+      sessionTarget: "main",
+      wakeMode: "now",
+      payload: { kind: "systemEvent", text: "tick" },
+      state: { nextRunAtMs: staleNextRunAtMs },
+    } as const;
+
+    await fs.mkdir(path.dirname(storePath), { recursive: true });
+    await fs.writeFile(
+      storePath,
+      JSON.stringify({ version: 1, jobs: [{ ...baseJob, schedule: "0 6 * * *" }] }, null, 2),
+      "utf8",
+    );
+
+    const state = createStoreTestState(storePath);
+    await ensureLoaded(state, { skipRecompute: true });
+    expect(findJobOrThrow(state, "malformed-transition-job").state.nextRunAtMs).toBe(
+      staleNextRunAtMs,
+    );
+
+    // Different malformed shape -> identity changes -> stale nextRunAtMs cleared.
+    await fs.writeFile(
+      storePath,
+      JSON.stringify(
+        {
+          version: 1,
+          jobs: [
+            {
+              ...baseJob,
+              updatedAtMs: STORE_TEST_NOW,
+              schedule: "0 7 * * *",
+              state: { nextRunAtMs: staleNextRunAtMs },
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    await ensureLoaded(state, { forceReload: true, skipRecompute: true });
+    expect(findJobOrThrow(state, "malformed-transition-job").state.nextRunAtMs).toBeUndefined();
+  });
 });
