@@ -148,6 +148,12 @@ export type CronServiceState = {
    * single broken job does not spam the log on every scheduler cycle.
    */
   warnedMissingSessionTargetJobIds: Set<string>;
+  /**
+   * Job ids whose persisted schedule shape is malformed (#75886). Tracked so
+   * the structured warning fires once per process per job instead of on every
+   * forceReload tick.
+   */
+  warnedMalformedScheduleJobIds: Set<string>;
   storeLoadedAtMs: number | null;
   storeFileMtimeMs: number | null;
 };
@@ -161,6 +167,7 @@ export function createCronServiceState(deps: CronServiceDeps): CronServiceState 
     op: Promise.resolve(),
     warnedDisabled: false,
     warnedMissingSessionTargetJobIds: new Set<string>(),
+    warnedMalformedScheduleJobIds: new Set<string>(),
     storeLoadedAtMs: null,
     storeFileMtimeMs: null,
   };

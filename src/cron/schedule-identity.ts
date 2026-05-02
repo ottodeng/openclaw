@@ -1,5 +1,3 @@
-import type { CronJob } from "./types.js";
-
 function readString(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -61,14 +59,51 @@ function resolveSchedulePayload(
   return schedulePayloadFromRecord(job);
 }
 
-function cronScheduleIdentity(job: Pick<CronJob, "schedule"> & { enabled?: boolean }): string {
-  const schedule = resolveSchedulePayload(job as unknown as Record<string, unknown>);
-  if (!schedule) {
-    throw new Error("Unsupported cron schedule kind");
+/**
+ * Sentinel string used when a job has a malformed/unrecognized schedule
+ * (e.g., persisted as a bare string instead of `{ kind, ... }`). We hash the
+ * raw schedule value into a stable identity so:
+ *   - two reloads of the same malformed entry compare equal (no spurious
+ *     `nextRunAtMs` invalidation that would mask a real schedule change), and
+ *   - a transition between two different malformed shapes still invalidates
+ *     stale `nextRunAtMs`.
+ *
+ * This keeps `cronSchedulingInputsEqual` total (never throws), so one corrupt
+ * persisted entry cannot kill the scheduler tick (#75886).
+ */
+function malformedScheduleIdentity(
+  job: { schedule?: unknown; enabled?: unknown } & Record<string, unknown>,
+): string {
+  let scheduleRepr: string;
+  try {
+    scheduleRepr = JSON.stringify(job.schedule ?? null) ?? "null";
+  } catch {
+    scheduleRepr = `<unserializable:${typeof job.schedule}>`;
   }
   return JSON.stringify({
     version: 1,
-    enabled: job.enabled ?? true,
+    malformed: true,
+    enabled: typeof job.enabled === "boolean" ? job.enabled : true,
+    scheduleRepr,
+  });
+}
+
+/**
+ * Non-throwing schedule identity. Returns a stable JSON string for any input,
+ * including malformed/legacy persisted jobs. Use this anywhere a throw would
+ * propagate to the scheduler tick (notably store reload comparison). Callers
+ * that need to detect malformed entries should use {@link tryCronScheduleIdentity}.
+ */
+export function cronScheduleIdentityOrNull(
+  job: { schedule?: unknown; enabled?: unknown } & Record<string, unknown>,
+): string {
+  const schedule = resolveSchedulePayload(job);
+  if (!schedule) {
+    return malformedScheduleIdentity(job);
+  }
+  return JSON.stringify({
+    version: 1,
+    enabled: typeof job.enabled === "boolean" ? job.enabled : true,
     schedule,
   });
 }
@@ -87,9 +122,15 @@ export function tryCronScheduleIdentity(
   });
 }
 
+/**
+ * Total comparison of scheduling inputs. Never throws — see #75886, where a
+ * single malformed persisted job (string-shaped `schedule` field) used to
+ * propagate "Unsupported cron schedule kind" up through the scheduler tick
+ * and freeze `nextWakeAtMs` for every other job.
+ */
 export function cronSchedulingInputsEqual(
-  previous: Pick<CronJob, "schedule"> & { enabled?: boolean },
-  next: Pick<CronJob, "schedule"> & { enabled?: boolean },
+  previous: { schedule?: unknown; enabled?: unknown } & Record<string, unknown>,
+  next: { schedule?: unknown; enabled?: unknown } & Record<string, unknown>,
 ): boolean {
-  return cronScheduleIdentity(previous) === cronScheduleIdentity(next);
+  return cronScheduleIdentityOrNull(previous) === cronScheduleIdentityOrNull(next);
 }

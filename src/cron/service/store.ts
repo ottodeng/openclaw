@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { normalizeCronJobIdentityFields } from "../normalize-job-identity.js";
 import { normalizeCronJobInput } from "../normalize.js";
-import { cronSchedulingInputsEqual } from "../schedule-identity.js";
+import { cronSchedulingInputsEqual, tryCronScheduleIdentity } from "../schedule-identity.js";
 import { isInvalidCronSessionTargetIdError } from "../session-target.js";
 import { loadCronStore, saveCronStore } from "../store.js";
 import type { CronJob } from "../types.js";
@@ -85,6 +85,29 @@ export async function ensureLoaded(
       hydrated.enabled = true;
     }
     invalidateStaleNextRunOnScheduleChange({ previousJobsById, hydrated });
+    // #75886: persisted jobs can carry malformed schedule shapes (e.g.
+    // `schedule: "0 6 * * *"` instead of `{ kind: "cron", expr: "0 6 * * *" }`).
+    // Surface a structured warning once per jobId so the rest of the tick
+    // (and other valid jobs) keep running. The reload-comparison path is
+    // already non-throwing via `cronScheduleIdentityOrNull`.
+    if (tryCronScheduleIdentity(hydrated as unknown as Record<string, unknown>) === undefined) {
+      const jobId = typeof hydrated.id === "string" ? hydrated.id : undefined;
+      const dedupeKey = jobId ?? "<unknown>";
+      if (!state.warnedMalformedScheduleJobIds.has(dedupeKey)) {
+        state.warnedMalformedScheduleJobIds.add(dedupeKey);
+        state.deps.log.warn(
+          {
+            storePath: state.deps.storePath,
+            jobId,
+            scheduleKind:
+              hydrated.schedule && typeof hydrated.schedule === "object"
+                ? (hydrated.schedule as { kind?: unknown }).kind
+                : typeof hydrated.schedule,
+          },
+          "cron: job has unsupported schedule shape; skipping job (run openclaw doctor --fix to repair)",
+        );
+      }
+    }
     // Same shape: persisted jobs missing `sessionTarget` crash downstream
     // on any code path that dereferences `.startsWith` (e.g.
     // `runIsolatedAgentJob` in `src/gateway/server-cron.ts`). Mirror the
