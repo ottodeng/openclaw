@@ -19,6 +19,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Providers/Microsoft Foundry: skip Anthropic (Claude) deployments during onboard since the built-in Foundry provider only speaks the OpenAI-compatible API surface, and apply the same filter to the persisted deployment catalog so mixed GPT+Claude resources no longer leak Claude entries into `models.providers.microsoft-foundry` after the picker hides them. Fixes #60546.
 - Control UI/chat: keep live replies visible when a raw session alias such as `main` sends the chat turn but Gateway emits events under the canonical session key for the same run. Fixes #73716. Thanks @teebes.
 - CLI: stop treating the legacy singular `openclaw tool ...` token as a plugin id under restrictive `plugins.allow`, so it falls through as a normal unknown/reserved command instead of suggesting a stale allowlist entry. Fixes #64732. Thanks @efe-arv, @SweetSophia, and @hashtag1974.
 - Media: write inbound media buffers through same-directory temp files before rename, so failed disk writes do not leave zero-byte artifacts for later voice transcription. Fixes #55966. Thanks @OpenCodeEngineer.
