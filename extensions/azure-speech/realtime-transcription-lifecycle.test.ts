@@ -339,6 +339,58 @@ describe("createAzureSpeechRealtimeTranscriptionSession — audio & teardown", (
     expect(() => session.close()).not.toThrow();
   });
 
+  it("close() during pending connect() tears down the recognizer and push stream", async () => {
+    const { sdk, hooks } = createMockSdk();
+    let releaseLoad: () => void = () => {};
+    const loadGate = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    const session = createAzureSpeechRealtimeTranscriptionSession(baseSessionConfig, {
+      loadSdk: async () => {
+        await loadGate;
+        return sdk;
+      },
+    });
+    const connectPromise = session.connect();
+    // close() lands while loadSdk() is still pending.
+    session.close();
+    releaseLoad();
+    await connectPromise;
+    // No Azure resources were ever allocated because closing was true when
+    // loadSdk resolved.
+    expect(hooks.recognizerCtorSpy).not.toHaveBeenCalled();
+    expect(hooks.fromConfigSpy).not.toHaveBeenCalled();
+    expect(hooks.startSpy).not.toHaveBeenCalled();
+    expect(session.isConnected()).toBe(false);
+  });
+
+  it("close() after recognizer.start completes but before connect resolves stops the recognizer", async () => {
+    const { sdk, hooks } = createMockSdk();
+    let resolveStart: (() => void) | undefined;
+    hooks.startSpy.mockImplementation((success?: () => void) => {
+      resolveStart = () => success?.();
+    });
+    const session = createAzureSpeechRealtimeTranscriptionSession(baseSessionConfig, {
+      loadSdk: async () => sdk,
+    });
+    const connectPromise = session.connect();
+    // Allow the chain to reach startContinuousRecognitionAsync.
+    for (let i = 0; i < 5; i++) {
+      await new Promise<void>((r) => setImmediate(r));
+    }
+    // close() lands while start is still pending.
+    session.close();
+    // Now let start succeed.
+    resolveStart?.();
+    await connectPromise;
+    // Recognizer was created and started, but close() during start must trigger
+    // a stop + push stream close so we do not leak the socket.
+    expect(hooks.startSpy).toHaveBeenCalled();
+    expect(hooks.stopSpy).toHaveBeenCalled();
+    expect(hooks.pushStream.closeSpy).toHaveBeenCalled();
+    expect(session.isConnected()).toBe(false);
+  });
+
   it("ignores audio after close()", async () => {
     const { sdk, hooks } = createMockSdk();
     const session = createAzureSpeechRealtimeTranscriptionSession(baseSessionConfig, {

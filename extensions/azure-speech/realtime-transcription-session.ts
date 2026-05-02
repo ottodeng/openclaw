@@ -121,6 +121,11 @@ export function createAzureSpeechRealtimeTranscriptionSession(
     }
     closing = true;
     connected = false;
+    // If connect() is still pending, the in-flight chain checks `closing`
+    // after each await and tears down anything it creates. Nothing to do here.
+    if (connecting && !recognizer && !pushStream) {
+      return;
+    }
     if (recognizer) {
       try {
         recognizer.stopContinuousRecognitionAsync(closeStreamAndRecognizer, (msg) => {
@@ -204,6 +209,11 @@ export function createAzureSpeechRealtimeTranscriptionSession(
     }
     connecting = (async () => {
       const sdk = await deps.loadSdk();
+      if (closing) {
+        // Session was closed while loadSdk() was in flight. Bail before
+        // allocating any Azure SDK resources.
+        return;
+      }
       const speechConfig = config.endpoint
         ? sdk.SpeechConfig.fromEndpoint(new URL(config.endpoint), config.apiKey)
         : sdk.SpeechConfig.fromSubscription(config.apiKey, requireRegionFor(config));
@@ -223,6 +233,13 @@ export function createAzureSpeechRealtimeTranscriptionSession(
         audioFormatTagFor(config.encoding, sdk),
       );
       pushStream = sdk.AudioInputStream.createPushStream(format);
+      if (closing) {
+        // Session was closed during async work above. Tear down the freshly
+        // created push stream so we do not leak the recognizer or socket.
+        closeStreamAndRecognizer();
+        pushStream = undefined;
+        return;
+      }
       const audioConfig = sdk.AudioConfig.fromStreamInput(pushStream);
 
       if (config.candidateLanguages && config.candidateLanguages.length > 0) {
@@ -236,12 +253,36 @@ export function createAzureSpeechRealtimeTranscriptionSession(
 
       wireRecognizerEvents(sdk);
 
+      if (closing) {
+        // close() ran between recognizer creation and start; tear down the
+        // recognizer + push stream rather than starting a doomed recognition.
+        closeStreamAndRecognizer();
+        recognizer = undefined;
+        pushStream = undefined;
+        return;
+      }
+
       await new Promise<void>((resolve, reject) => {
         recognizer?.startContinuousRecognitionAsync(
           () => resolve(),
           (msg) => reject(new Error(`Azure Speech start failed: ${msg}`)),
         );
       });
+      if (closing) {
+        // close() ran while startContinuousRecognitionAsync was in flight.
+        // Stop the recognizer we just started and release the push stream so
+        // the upstream socket / SDK worker do not stay alive past close().
+        try {
+          recognizer?.stopContinuousRecognitionAsync(closeStreamAndRecognizer, () => {
+            closeStreamAndRecognizer();
+          });
+        } catch {
+          closeStreamAndRecognizer();
+        }
+        recognizer = undefined;
+        pushStream = undefined;
+        return;
+      }
       connected = true;
       flushPendingAudio();
     })();
