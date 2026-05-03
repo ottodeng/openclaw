@@ -2,9 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveOpenClawPackageRootSync } from "../infra/openclaw-root.js";
-import { existsSyncCached } from "../shared/cached-fs.js";
+import { createExistsSyncCache } from "../shared/cached-fs.js";
 import { normalizeLowercaseStringOrEmpty } from "../shared/string-coerce.js";
 import { PluginLruCache } from "./plugin-cache-primitives.js";
+
+type ResolveExists = (p: string) => boolean;
 
 type PluginSdkAliasCandidateKind = "dist" | "src";
 export type PluginSdkResolutionPreference = "auto" | "dist" | "src";
@@ -64,6 +66,7 @@ function listPluginSdkSubpathsFromPackageJson(pkg: PluginSdkPackageJson): string
 function hasTrustedOpenClawRootIndicator(params: {
   packageRoot: string;
   packageJson: PluginSdkPackageJson;
+  resolveExists: ResolveExists;
 }): boolean {
   const packageExports = params.packageJson.exports ?? {};
   const hasPluginSdkRootExport = Object.prototype.hasOwnProperty.call(
@@ -80,16 +83,19 @@ function hasTrustedOpenClawRootIndicator(params: {
     (typeof params.packageJson.bin === "object" &&
       params.packageJson.bin !== null &&
       typeof params.packageJson.bin.openclaw === "string");
-  const hasOpenClawEntrypoint = existsSyncCached(path.join(params.packageRoot, "openclaw.mjs"));
+  const hasOpenClawEntrypoint = params.resolveExists(path.join(params.packageRoot, "openclaw.mjs"));
   return hasCliEntryExport || hasOpenClawBin || hasOpenClawEntrypoint;
 }
 
-function readPluginSdkSubpathsFromPackageRoot(packageRoot: string): string[] | null {
+function readPluginSdkSubpathsFromPackageRoot(
+  packageRoot: string,
+  resolveExists: ResolveExists,
+): string[] | null {
   const pkg = readPluginSdkPackageJson(packageRoot);
   if (!pkg) {
     return null;
   }
-  if (!hasTrustedOpenClawRootIndicator({ packageRoot, packageJson: pkg })) {
+  if (!hasTrustedOpenClawRootIndicator({ packageRoot, packageJson: pkg, resolveExists })) {
     return null;
   }
   const subpaths = listPluginSdkSubpathsFromPackageJson(pkg);
@@ -99,6 +105,7 @@ function readPluginSdkSubpathsFromPackageRoot(packageRoot: string): string[] | n
 function resolveTrustedOpenClawRootFromArgvHint(params: {
   argv1?: string;
   cwd: string;
+  resolveExists: ResolveExists;
 }): string | null {
   if (!params.argv1) {
     return null;
@@ -114,13 +121,23 @@ function resolveTrustedOpenClawRootFromArgvHint(params: {
   if (!packageJson) {
     return null;
   }
-  return hasTrustedOpenClawRootIndicator({ packageRoot, packageJson }) ? packageRoot : null;
+  return hasTrustedOpenClawRootIndicator({
+    packageRoot,
+    packageJson,
+    resolveExists: params.resolveExists,
+  })
+    ? packageRoot
+    : null;
 }
 
-function findNearestPluginSdkPackageRoot(startDir: string, maxDepth = 12): string | null {
+function findNearestPluginSdkPackageRoot(
+  startDir: string,
+  resolveExists: ResolveExists,
+  maxDepth = 12,
+): string | null {
   let cursor = path.resolve(startDir);
   for (let i = 0; i < maxDepth; i += 1) {
-    const subpaths = readPluginSdkSubpathsFromPackageRoot(cursor);
+    const subpaths = readPluginSdkSubpathsFromPackageRoot(cursor, resolveExists);
     if (subpaths) {
       return cursor;
     }
@@ -151,12 +168,16 @@ export function resolveLoaderPackageRoot(
 }
 
 function resolveLoaderPluginSdkPackageRoot(
-  params: LoaderModuleResolveParams & { modulePath: string },
+  params: LoaderModuleResolveParams & { modulePath: string; resolveExists: ResolveExists },
 ): string | null {
   const cwd = params.cwd ?? path.dirname(params.modulePath);
   const fromCwd = resolveOpenClawPackageRootSync({ cwd });
   const fromExplicitHints =
-    resolveTrustedOpenClawRootFromArgvHint({ cwd, argv1: params.argv1 }) ??
+    resolveTrustedOpenClawRootFromArgvHint({
+      cwd,
+      argv1: params.argv1,
+      resolveExists: params.resolveExists,
+    }) ??
     (params.moduleUrl
       ? resolveOpenClawPackageRootSync({
           cwd,
@@ -166,9 +187,9 @@ function resolveLoaderPluginSdkPackageRoot(
   return (
     fromCwd ??
     fromExplicitHints ??
-    findNearestPluginSdkPackageRoot(path.dirname(params.modulePath)) ??
-    (params.cwd ? findNearestPluginSdkPackageRoot(params.cwd) : null) ??
-    findNearestPluginSdkPackageRoot(process.cwd())
+    findNearestPluginSdkPackageRoot(path.dirname(params.modulePath), params.resolveExists) ??
+    (params.cwd ? findNearestPluginSdkPackageRoot(params.cwd, params.resolveExists) : null) ??
+    findNearestPluginSdkPackageRoot(process.cwd(), params.resolveExists)
   );
 }
 
@@ -196,13 +217,15 @@ export function listPluginSdkAliasCandidates(params: {
   cwd?: string;
   moduleUrl?: string;
   pluginSdkResolution?: PluginSdkResolutionPreference;
+  resolveExists?: ResolveExists;
 }) {
+  const resolveExists = params.resolveExists ?? fs.existsSync;
   const orderedKinds = resolvePluginSdkAliasCandidateOrder({
     modulePath: params.modulePath,
     isProduction: process.env.NODE_ENV === "production",
     pluginSdkResolution: params.pluginSdkResolution,
   });
-  const packageRoot = resolveLoaderPluginSdkPackageRoot(params);
+  const packageRoot = resolveLoaderPluginSdkPackageRoot({ ...params, resolveExists });
   if (packageRoot) {
     const candidateMap = {
       src: path.join(packageRoot, "src", "plugin-sdk", params.srcFile),
@@ -237,8 +260,10 @@ export function resolvePluginSdkAliasFile(params: {
   cwd?: string;
   moduleUrl?: string;
   pluginSdkResolution?: PluginSdkResolutionPreference;
+  resolveExists?: ResolveExists;
 }): string | null {
   try {
+    const resolveExists = params.resolveExists ?? fs.existsSync;
     const modulePath = resolveLoaderModulePath(params);
     for (const candidate of listPluginSdkAliasCandidates({
       srcFile: params.srcFile,
@@ -248,8 +273,9 @@ export function resolvePluginSdkAliasFile(params: {
       cwd: params.cwd,
       moduleUrl: params.moduleUrl,
       pluginSdkResolution: params.pluginSdkResolution,
+      resolveExists,
     })) {
-      if (existsSyncCached(candidate)) {
+      if (resolveExists(candidate)) {
         return candidate;
       }
     }
@@ -278,8 +304,8 @@ const PLUGIN_SDK_SOURCE_CANDIDATE_EXTENSIONS = [
 const JS_STATIC_RELATIVE_DEPENDENCY_PATTERN =
   /(?:\bfrom\s*["']|\bimport\s*\(\s*["']|\brequire\s*\(\s*["'])(\.{1,2}\/[^"']+)["']/g;
 
-function isUsableDistPluginSdkArtifact(candidate: string): boolean {
-  if (!existsSyncCached(candidate)) {
+function isUsableDistPluginSdkArtifact(candidate: string, resolveExists: ResolveExists): boolean {
+  if (!resolveExists(candidate)) {
     return false;
   }
   switch (normalizeLowercaseStringOrEmpty(path.extname(candidate))) {
@@ -294,7 +320,7 @@ function isUsableDistPluginSdkArtifact(candidate: string): boolean {
     const source = fs.readFileSync(candidate, "utf-8");
     for (const match of source.matchAll(JS_STATIC_RELATIVE_DEPENDENCY_PATTERN)) {
       const specifier = match[1];
-      if (!specifier || existsSyncCached(path.resolve(path.dirname(candidate), specifier))) {
+      if (!specifier || resolveExists(path.resolve(path.dirname(candidate), specifier))) {
         continue;
       }
       return false;
@@ -325,13 +351,17 @@ function shouldIncludePrivateLocalOnlyPluginSdkSubpaths() {
   return process.env.OPENCLAW_ENABLE_PRIVATE_QA_CLI === "1";
 }
 
-function hasPluginSdkSubpathArtifact(packageRoot: string, subpath: string) {
+function hasPluginSdkSubpathArtifact(
+  packageRoot: string,
+  subpath: string,
+  resolveExists: ResolveExists,
+) {
   const distPath = path.join(packageRoot, "dist", "plugin-sdk", `${subpath}.js`);
-  if (isUsableDistPluginSdkArtifact(distPath)) {
+  if (isUsableDistPluginSdkArtifact(distPath, resolveExists)) {
     return true;
   }
   return PLUGIN_SDK_SOURCE_CANDIDATE_EXTENSIONS.some((ext) =>
-    existsSyncCached(path.join(packageRoot, "src", "plugin-sdk", `${subpath}${ext}`)),
+    resolveExists(path.join(packageRoot, "src", "plugin-sdk", `${subpath}${ext}`)),
   );
 }
 
@@ -350,12 +380,15 @@ function listDistPluginSdkArtifactSubpaths(packageRoot: string): Set<string> {
   }
 }
 
-function listPrivateLocalOnlyPluginSdkSubpaths(packageRoot: string): string[] {
+function listPrivateLocalOnlyPluginSdkSubpaths(
+  packageRoot: string,
+  resolveExists: ResolveExists,
+): string[] {
   if (!shouldIncludePrivateLocalOnlyPluginSdkSubpaths()) {
     return [];
   }
   return readPrivateLocalOnlyPluginSdkSubpaths(packageRoot).filter((subpath) =>
-    hasPluginSdkSubpathArtifact(packageRoot, subpath),
+    hasPluginSdkSubpathArtifact(packageRoot, subpath, resolveExists),
   );
 }
 
@@ -365,13 +398,16 @@ export function listPluginSdkExportedSubpaths(
     argv1?: string;
     moduleUrl?: string;
     pluginSdkResolution?: PluginSdkResolutionPreference;
+    resolveExists?: ResolveExists;
   } = {},
 ): string[] {
+  const resolveExists = params.resolveExists ?? fs.existsSync;
   const modulePath = params.modulePath ?? fileURLToPath(import.meta.url);
   const packageRoot = resolveLoaderPluginSdkPackageRoot({
     modulePath,
     argv1: params.argv1,
     moduleUrl: params.moduleUrl,
+    resolveExists,
   });
   if (!packageRoot) {
     return [];
@@ -383,8 +419,8 @@ export function listPluginSdkExportedSubpaths(
   }
   const subpaths = [
     ...new Set([
-      ...(readPluginSdkSubpathsFromPackageRoot(packageRoot) ?? []),
-      ...listPrivateLocalOnlyPluginSdkSubpaths(packageRoot),
+      ...(readPluginSdkSubpathsFromPackageRoot(packageRoot, resolveExists) ?? []),
+      ...listPrivateLocalOnlyPluginSdkSubpaths(packageRoot, resolveExists),
     ]),
   ].toSorted();
   cachedPluginSdkExportedSubpaths.set(cacheKey, subpaths);
@@ -397,13 +433,16 @@ export function resolvePluginSdkScopedAliasMap(
     argv1?: string;
     moduleUrl?: string;
     pluginSdkResolution?: PluginSdkResolutionPreference;
+    resolveExists?: ResolveExists;
   } = {},
 ): Record<string, string> {
+  const resolveExists = params.resolveExists ?? fs.existsSync;
   const modulePath = params.modulePath ?? fileURLToPath(import.meta.url);
   const packageRoot = resolveLoaderPluginSdkPackageRoot({
     modulePath,
     argv1: params.argv1,
     moduleUrl: params.moduleUrl,
+    resolveExists,
   });
   if (!packageRoot) {
     return {};
@@ -427,6 +466,7 @@ export function resolvePluginSdkScopedAliasMap(
     argv1: params.argv1,
     moduleUrl: params.moduleUrl,
     pluginSdkResolution: params.pluginSdkResolution,
+    resolveExists,
   })) {
     for (const kind of orderedKinds) {
       if (kind === "dist") {
@@ -434,7 +474,7 @@ export function resolvePluginSdkScopedAliasMap(
           continue;
         }
         const candidate = path.join(packageRoot, "dist", "plugin-sdk", `${subpath}.js`);
-        if (isUsableDistPluginSdkArtifact(candidate)) {
+        if (isUsableDistPluginSdkArtifact(candidate, resolveExists)) {
           for (const packageName of PLUGIN_SDK_PACKAGE_NAMES) {
             aliasMap[`${packageName}/${subpath}`] = candidate;
           }
@@ -444,7 +484,7 @@ export function resolvePluginSdkScopedAliasMap(
       }
       for (const ext of PLUGIN_SDK_SOURCE_CANDIDATE_EXTENSIONS) {
         const candidate = path.join(packageRoot, "src", "plugin-sdk", `${subpath}${ext}`);
-        if (!existsSyncCached(candidate)) {
+        if (!resolveExists(candidate)) {
           continue;
         }
         for (const packageName of PLUGIN_SDK_PACKAGE_NAMES) {
@@ -461,8 +501,11 @@ export function resolvePluginSdkScopedAliasMap(
   return aliasMap;
 }
 
-export function resolveExtensionApiAlias(params: LoaderModuleResolveParams = {}): string | null {
+export function resolveExtensionApiAlias(
+  params: LoaderModuleResolveParams & { resolveExists?: ResolveExists } = {},
+): string | null {
   try {
+    const resolveExists = params.resolveExists ?? fs.existsSync;
     const modulePath = resolveLoaderModulePath(params);
     const packageRoot = resolveLoaderPackageRoot({ ...params, modulePath });
     if (!packageRoot) {
@@ -477,14 +520,14 @@ export function resolveExtensionApiAlias(params: LoaderModuleResolveParams = {})
     for (const kind of orderedKinds) {
       if (kind === "dist") {
         const candidate = path.join(packageRoot, "dist", "extensionAPI.js");
-        if (existsSyncCached(candidate)) {
+        if (resolveExists(candidate)) {
           return candidate;
         }
         continue;
       }
       for (const ext of PLUGIN_SDK_SOURCE_CANDIDATE_EXTENSIONS) {
         const candidate = path.join(packageRoot, "src", `extensionAPI${ext}`);
-        if (existsSyncCached(candidate)) {
+        if (resolveExists(candidate)) {
           return candidate;
         }
       }
@@ -614,6 +657,9 @@ export function buildPluginLoaderAliasMap(
     return cached;
   }
 
+  const scanCache = createExistsSyncCache();
+  const resolveExists: ResolveExists = (p) => scanCache.existsSync(p);
+
   const pluginSdkAlias = resolvePluginSdkAliasFile({
     srcFile: "root-alias.cjs",
     distFile: "root-alias.cjs",
@@ -621,8 +667,13 @@ export function buildPluginLoaderAliasMap(
     argv1,
     moduleUrl,
     pluginSdkResolution,
+    resolveExists,
   });
-  const extensionApiAlias = resolveExtensionApiAlias({ modulePath, pluginSdkResolution });
+  const extensionApiAlias = resolveExtensionApiAlias({
+    modulePath,
+    pluginSdkResolution,
+    resolveExists,
+  });
   const result: Record<string, string> = {
     ...(extensionApiAlias
       ? { "openclaw/extension-api": normalizeJitiAliasTargetPath(extensionApiAlias) }
@@ -637,7 +688,13 @@ export function buildPluginLoaderAliasMap(
       : {}),
     ...Object.fromEntries(
       Object.entries(
-        resolvePluginSdkScopedAliasMap({ modulePath, argv1, moduleUrl, pluginSdkResolution }),
+        resolvePluginSdkScopedAliasMap({
+          modulePath,
+          argv1,
+          moduleUrl,
+          pluginSdkResolution,
+          resolveExists,
+        }),
       ).map(([key, value]) => [key, normalizeJitiAliasTargetPath(value)]),
     ),
   };
@@ -667,7 +724,7 @@ export function resolvePluginRuntimeModulePath(
           path.join(path.dirname(modulePath), "runtime", "index.js"),
         ];
     for (const candidate of candidates) {
-      if (existsSyncCached(candidate)) {
+      if (fs.existsSync(candidate)) {
         return candidate;
       }
     }
