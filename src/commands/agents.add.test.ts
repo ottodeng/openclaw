@@ -15,6 +15,9 @@ const wizardMocks = vi.hoisted(() => ({
   createClackPrompter: vi.fn(),
 }));
 
+const warnIfModelConfigLooksOffMock = vi.hoisted(() => vi.fn(async () => {}));
+const setupChannelsMock = vi.hoisted(() => vi.fn());
+
 vi.mock("../config/config.js", async () => ({
   ...(await vi.importActual<typeof import("../config/config.js")>("../config/config.js")),
   readConfigFileSnapshot: readConfigFileSnapshotMock,
@@ -24,6 +27,15 @@ vi.mock("../config/config.js", async () => ({
 
 vi.mock("../wizard/clack-prompter.js", () => ({
   createClackPrompter: wizardMocks.createClackPrompter,
+}));
+
+vi.mock("./auth-choice.js", () => ({
+  applyAuthChoice: vi.fn(async (a: { config: unknown }) => ({ config: a.config })),
+  warnIfModelConfigLooksOff: warnIfModelConfigLooksOffMock,
+}));
+
+vi.mock("./onboard-channels.js", () => ({
+  setupChannels: setupChannelsMock,
 }));
 
 import { WizardCancelledError } from "../wizard/prompts.js";
@@ -38,6 +50,8 @@ describe("agents add command", () => {
     writeConfigFileMock.mockClear();
     replaceConfigFileMock.mockClear();
     wizardMocks.createClackPrompter.mockClear();
+    warnIfModelConfigLooksOffMock.mockClear();
+    setupChannelsMock.mockClear();
     runtime.log.mockClear();
     runtime.error.mockClear();
     runtime.exit.mockClear();
@@ -152,5 +166,28 @@ describe("agents add command", () => {
         sourceIsInheritedMain: true,
       }),
     ).toBe('OAuth profiles stay shared from "main" unless this agent signs in separately.');
+  });
+
+  it("passes validateCatalog: false to warnIfModelConfigLooksOff in the interactive wizard", async () => {
+    readConfigFileSnapshotMock.mockResolvedValue({ ...baseConfigSnapshot });
+    setupChannelsMock.mockRejectedValue(new WizardCancelledError());
+    wizardMocks.createClackPrompter.mockReturnValue({
+      intro: vi.fn().mockResolvedValue(undefined),
+      text: vi
+        .fn()
+        .mockResolvedValueOnce("Jon") // agent name
+        .mockResolvedValueOnce("/tmp/work"), // workspace dir
+      confirm: vi.fn().mockResolvedValue(false), // wantsAuth = false
+      note: vi.fn().mockResolvedValue(undefined),
+      outro: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await agentsAddCommand({}, runtime);
+
+    expect(warnIfModelConfigLooksOffMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ validateCatalog: false }),
+    );
   });
 });
