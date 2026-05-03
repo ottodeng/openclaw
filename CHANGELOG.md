@@ -19,6 +19,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Subagents/steer: make the subagent `id` optional for `/steer` when exactly one active run exists, matching the UI's `[id] <message>` behaviour; all text-command channels (Telegram, WhatsApp, etc.) now accept `/steer <message>` to steer the sole running subagent without needing an explicit index or run id. Fixes #76512. Thanks @ottodeng.
 - Agents/sessions: keep delayed `sessions_send` A2A replies alive after soft wait-window timeouts, while preserving terminal run timeouts and avoiding stale target replies in requester sessions. Fixes #76443. Thanks @ryswork1993 and @vincentkoc.
 - CLI/sessions: keep intentional empty agent replies silent after tool-delivered channel output, instead of surfacing a misleading "No reply from agent." fallback. Thanks @vincentkoc.
 - Config/doctor: cap `.clobbered.*` forensic snapshots per config path and serialize snapshot writes so repeated `doctor --fix` recovery loops cannot flood the config directory. Fixes #76454; carries forward #65649. Thanks @JUSTICEESSIELP, @rsnow, and @vincentkoc.
