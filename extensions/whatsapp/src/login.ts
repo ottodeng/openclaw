@@ -21,7 +21,7 @@ export async function loginWeb(
   const socketTiming = resolveWhatsAppSocketTiming(cfg);
   const restoredFromBackup = await restoreCredsFromBackupIfNeeded(account.authDir);
   const onQr = (qr: string) => {
-    runtime.log("Scan this QR in WhatsApp (Linked Devices):");
+    runtime.log("Open the WhatsApp app, go to Linked Devices, then scan this QR:");
     void renderQrTerminal(qr, { small: true })
       .then((output) => {
         runtime.log(output.endsWith("\n") ? output.slice(0, -1) : output);
@@ -51,7 +51,7 @@ export async function loginWeb(
       },
     });
     if (result.outcome === "connected") {
-      console.log(
+      runtime.log(
         success(
           result.restarted
             ? "✅ Linked after restart; web session ready."
@@ -64,7 +64,7 @@ export async function loginWeb(
     }
 
     if (result.outcome === "logged-out") {
-      console.error(
+      runtime.error(
         danger(
           `WhatsApp reported the session is logged out. Cleared cached web session; please rerun ${formatCliCommand("openclaw channels login")} and scan the QR again.`,
         ),
@@ -74,7 +74,7 @@ export async function loginWeb(
       });
     }
 
-    console.error(danger(`WhatsApp Web connection ended before fully opening. ${result.message}`));
+    runtime.error(danger(`WhatsApp Web connection ended before fully opening. ${result.message}`));
     throw new Error(result.message, { cause: result.error });
   } finally {
     // Let Baileys flush any final events before closing the socket.
