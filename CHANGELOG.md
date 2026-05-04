@@ -13,6 +13,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Memory-core/dreaming: raise the Dream Diary narrative subagent timeout default from 60s to 240s and accept `OPENCLAW_DREAMING_NARRATIVE_TIMEOUT_MS` for operator overrides so multi-workspace and slower-host setups stop losing every dreaming phase to a hard 60-second budget. Fixes #76333. (#76342) Thanks @ottodeng.
 - Maintainer workflow: push prepared PR heads through GitHub's verified commit API by default and require an explicit override before git-protocol pushes can publish unsigned commits. Thanks @BunsDev.
 - Feishu: resolve setup/status probes through the selected/default account so multi-account configs with account-scoped app credentials show as configured and probeable. Fixes #72930. Thanks @brokemac79.
 - Gateway/responses: emit every client tool call from `/v1/responses` JSON and SSE responses when the agent invokes multiple client tools in a single turn, so multi-tool plans, graph orchestration calls, and similar batched flows no longer drop every call but the last. Fixes #52288. Thanks @CharZhou and @bonelli.
