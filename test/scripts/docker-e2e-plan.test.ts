@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LIVE_RETRIES,
@@ -8,6 +9,9 @@ import {
 import { BUNDLED_PLUGIN_INSTALL_UNINSTALL_SHARDS } from "../../scripts/lib/docker-e2e-scenarios.mjs";
 
 const orderLanes = <T>(lanes: T[]) => lanes;
+const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+  scripts?: Record<string, string>;
+};
 
 function planFor(
   overrides: Partial<Parameters<typeof resolveDockerE2ePlan>[0]> = {},
@@ -240,6 +244,25 @@ describe("scripts/lib/docker-e2e-plan", () => {
     ]);
   });
 
+  it("keeps planned pnpm docker lanes backed by package scripts", () => {
+    const plan = planFor({
+      includeOpenWebUI: true,
+      planReleaseAll: true,
+      profile: RELEASE_PATH_PROFILE,
+    });
+    const scripts = packageJson.scripts ?? {};
+    const missing = plan.lanes
+      .flatMap((lane) =>
+        Array.from(lane.command.matchAll(/\bpnpm\s+(test:docker:[\w:-]+)/gu), (match) => ({
+          lane: lane.name,
+          script: match[1],
+        })),
+      )
+      .filter(({ script }) => !scripts[script]);
+
+    expect(missing).toEqual([]);
+  });
+
   it("keeps legacy release chunk names as aggregate aliases", () => {
     const packageUpdate = planFor({
       includeOpenWebUI: true,
@@ -449,7 +472,7 @@ describe("scripts/lib/docker-e2e-plan", () => {
     });
   });
 
-  it("plans Open WebUI as a functional-image lane with OpenAI credentials", () => {
+  it("plans Open WebUI as a live-only lane with OpenAI credentials", () => {
     const plan = planFor({
       includeOpenWebUI: true,
       selectedLaneNames: ["openwebui"],
@@ -458,15 +481,26 @@ describe("scripts/lib/docker-e2e-plan", () => {
     expect(plan.credentials).toEqual(["openai"]);
     expect(plan.lanes).toEqual([
       expect.objectContaining({
-        imageKind: "functional",
-        live: false,
+        imageKind: undefined,
+        live: true,
         name: "openwebui",
+        resources: expect.arrayContaining(["docker", "live", "live:openai", "service"]),
       }),
     ]);
     expect(plan.needs).toMatchObject({
-      functionalImage: true,
-      package: true,
+      e2eImage: false,
+      functionalImage: false,
+      liveImage: true,
+      package: false,
     });
+  });
+
+  it("excludes Open WebUI from skip-live Docker all plans", () => {
+    const plan = planFor({
+      liveMode: "skip",
+    });
+
+    expect(plan.lanes.map((lane) => lane.name)).not.toContain("openwebui");
   });
 
   it("surfaces Docker lane test-state scenarios in plan JSON", () => {
