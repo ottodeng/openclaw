@@ -69,6 +69,7 @@ describe("gateway config mutation guard coverage", () => {
         "channels.*.requireMention",
         "messages.visibleReplies",
         "messages.groupChat.visibleReplies",
+        "tools.web.search.maxResults",
       ]),
     );
   });
@@ -168,6 +169,19 @@ describe("gateway config mutation guard coverage", () => {
         },
       },
     );
+  });
+
+  it("allows tools.web.search.maxResults edits via config.patch (#79384)", () => {
+    expectAllowed({}, { tools: { web: { search: { maxResults: 10 } } } });
+    expectAllowed(
+      { tools: { web: { search: { maxResults: 5 } } } },
+      { tools: { web: { search: { maxResults: 10 } } } },
+    );
+  });
+
+  it("keeps neighboring tools.web.search fields protected via config.patch", () => {
+    expectBlocked({}, { tools: { web: { search: { timeoutSeconds: 60 } } } });
+    expectBlocked({}, { tools: { web: { search: { provider: "brave" } } } });
   });
 
   it("blocks disabling sandbox mode via config.patch", () => {

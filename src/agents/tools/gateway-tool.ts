@@ -57,6 +57,10 @@ const ALLOWED_GATEWAY_CONFIG_PATHS = [
   // or privilege boundary. Let agents repair silent group/channel rooms.
   "messages.visibleReplies",
   "messages.groupChat.visibleReplies",
+  // Web search result count is a bounded UX/performance knob (schema clamps to
+  // 1-10), not a secret or privilege boundary. Lets agents tune research-heavy
+  // workflows on backends like SearXNG that support more results. (#79384)
+  "tools.web.search.maxResults",
 ] as const;
 
 /** @internal Exposed for regression tests only; do not import from runtime code. */
