@@ -458,7 +458,7 @@ describe("handleCommands reset hooks", () => {
     expect(resetMocks.resetConfiguredBindingTargetInPlace).not.toHaveBeenCalled();
   });
 
-  it("acknowledges bare /reset without falling through to model execution", async () => {
+  it("falls through to agent loop for bare /reset (restores 4.x persona-greeting behavior)", async () => {
     const params = buildResetParams("/reset", {
       commands: { text: true },
       channels: { whatsapp: { allowFrom: ["*"] } },
@@ -466,14 +466,11 @@ describe("handleCommands reset hooks", () => {
 
     const result = await maybeHandleResetCommand(params);
 
-    expect(result).toEqual({
-      shouldContinue: false,
-      reply: { text: "✅ Session reset." },
-    });
+    expect(result).toBeNull();
     expectObjectFields(firstHookEvent(), { type: "command", action: "reset" }, "hook event");
   });
 
-  it("acknowledges bare /new without falling through to model execution", async () => {
+  it("falls through to agent loop for bare /new (restores 4.x persona-greeting behavior)", async () => {
     const params = buildResetParams("/new", {
       commands: { text: true },
       channels: { whatsapp: { allowFrom: ["*"] } },
@@ -481,10 +478,21 @@ describe("handleCommands reset hooks", () => {
 
     const result = await maybeHandleResetCommand(params);
 
-    expect(result).toEqual({
-      shouldContinue: false,
-      reply: { text: "✅ New session started." },
-    });
+    expect(result).toBeNull();
+    expectObjectFields(firstHookEvent(), { type: "command", action: "new" }, "hook event");
+  });
+
+  it("bare /new with no hook routedReply returns null so the LLM turn runs (#77733)", async () => {
+    // triggerInternalHookMock does NOT push any messages → routedReply stays false
+    const params = buildResetParams("/new", {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+    } as OpenClawConfig);
+
+    const result = await maybeHandleResetCommand(params);
+
+    expect(result).toBeNull();
+    expect(routeReplyMock).not.toHaveBeenCalled();
     expectObjectFields(firstHookEvent(), { type: "command", action: "new" }, "hook event");
   });
 
